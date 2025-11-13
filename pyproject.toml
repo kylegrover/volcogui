@@ -1,0 +1,31 @@
+[project]
+name = "volcogui"
+version = "0.1.0"
+description = "GUI application for Volco 3D printing simulator"
+requires-python = ">=3.9"
+dependencies = [
+    "PyQt6>=6.6.0",
+    "PyQt6-sip>=13.6.0",
+    "pyvista>=0.43.0",
+    "pyvistaqt>=0.11.0",
+    "numpy>=1.24.0",
+    "trimesh>=4.0.0",
+    "scikit-image>=0.22.0",
+    "scipy>=1.11.0",
+]
+
+[project.scripts]
+volcogui = "volcogui.main:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "black>=23.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = []
