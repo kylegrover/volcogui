@@ -36,7 +36,10 @@ class ParameterWidget(QGroupBox):
         self.step_size.setSingleStep(0.01)
         self.step_size.setValue(0.1)
         self.step_size.setSuffix(" mm")
-        self.step_size.setToolTip("Distance between simulation steps (smaller = higher accuracy but slower)")
+        self.step_size.setToolTip(
+            "Distance between simulation steps (smaller = higher accuracy but slower)\n"
+            "Note: If you get division by zero errors, try reducing this value"
+        )
         layout.addRow("Step Size:", self.step_size)
         
         # Nozzle diameter

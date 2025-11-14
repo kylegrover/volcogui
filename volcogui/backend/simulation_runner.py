@@ -1,11 +1,31 @@
 """Simulation runner for Volco."""
 
 import sys
+import io
+import re
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 from typing import Optional
 from PyQt6.QtCore import QThread, pyqtSignal
+
+
+class ProgressCapture(io.StringIO):
+    """Custom StringIO that captures output and triggers callbacks."""
+    
+    def __init__(self, callback):
+        super().__init__()
+        self.callback = callback
+        self.buffer = ""
+        
+    def write(self, text):
+        super().write(text)
+        self.buffer += text
+        # Trigger callback with new text
+        if self.callback:
+            self.callback(text)
+        return len(text)
 
 
 class SimulationWorker(QThread):
@@ -21,6 +41,9 @@ class SimulationWorker(QThread):
         self.gcode_path = gcode_path
         self.params = params
         self.output_stl = None
+        self.total_filaments = 0
+        self.processed_filaments = 0
+        self.last_progress_update = 0
         
     def run(self):
         """Run the simulation in a background thread."""
@@ -63,14 +86,18 @@ class SimulationWorker(QThread):
                 temp_dir = tempfile.gettempdir()
                 self.output_stl = str(Path(temp_dir) / "volco_output.stl")
                 
-                self.progress.emit("Running voxel simulation...")
-                
                 # Create temp directory for results
-                temp_dir = tempfile.gettempdir()
                 results_folder = str(Path(temp_dir) / "volcogui_results")
                 
-                # Run Volco simulation
-                output = run_simulation(
+                # Capture stdout to monitor progress
+                old_stdout = sys.stdout
+                sys.stdout = captured_output = io.StringIO()
+                
+                try:
+                    self.progress.emit("Running voxel simulation...")
+                    
+                    # Run Volco simulation
+                    output = run_simulation(
                     gcode_path=self.gcode_path,
                     printer_config={
                         'nozzle_diameter': self.params['nozzle_diameter'],
@@ -99,10 +126,22 @@ class SimulationWorker(QThread):
                     }
                 )
                 
-                self.progress.emit("Generating mesh...")
-                
-                # Export STL (Volco creates the file in results_folder/simulation_name.stl)
-                output.export_mesh_to_stl()
+                    self.progress.emit("Generating mesh...")
+                    
+                    # Export STL (Volco creates the file in results_folder/simulation_name.stl)
+                    output.export_mesh_to_stl()
+                    
+                finally:
+                    # Restore stdout
+                    sys.stdout = old_stdout
+                    output_text = captured_output.getvalue()
+                    
+                    # Extract progress info for debugging
+                    if "Number of printed filaments:" in output_text:
+                        match = re.search(r'Number of printed filaments: (\d+)', output_text)
+                        if match:
+                            total_filaments = match.group(1)
+                            self.progress.emit(f"Processed {total_filaments} filaments")
                 
                 # Get the actual STL path that Volco created
                 actual_stl_path = Path(results_folder) / "volcogui_simulation.stl"
@@ -120,8 +159,32 @@ class SimulationWorker(QThread):
                 self.error.emit(f"Volco import failed: {str(e)}\n\nMake sure Volco is in the correct location.")
                 return
                 
+        except ZeroDivisionError as e:
+            self.error.emit(
+                f"Division by zero error in simulation.\n\n"
+                f"This usually happens when:\n"
+                f"• Step size is larger than filament segments\n"
+                f"• G-code contains very short movements\n\n"
+                f"Try:\n"
+                f"• Reducing step_size (current: {self.params['step_size']}mm)\n"
+                f"• Increasing voxel_size\n\n"
+                f"Technical details: {str(e)}"
+            )
         except Exception as e:
-            self.error.emit(f"Simulation failed: {str(e)}")
+            error_msg = str(e)
+            # Make division by zero errors more user-friendly
+            if "division by zero" in error_msg.lower() or "divide by zero" in error_msg.lower():
+                self.error.emit(
+                    f"Division by zero error in simulation.\n\n"
+                    f"Current parameters:\n"
+                    f"• Step size: {self.params['step_size']}mm\n"
+                    f"• Voxel size: {self.params['voxel_size']}mm\n"
+                    f"• Nozzle diameter: {self.params['nozzle_diameter']}mm\n\n"
+                    f"Try reducing the step_size or check your G-code for very short movements.\n\n"
+                    f"Error: {error_msg}"
+                )
+            else:
+                self.error.emit(f"Simulation failed: {error_msg}")
             
     def _create_test_stl(self, output_path: str):
         """Create a simple test STL file for testing purposes."""

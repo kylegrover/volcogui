@@ -110,6 +110,14 @@ This structure allows:
 **Cause:** Invalid position string 'middle'
 **Solution:** Use viewport coordinates (0.35, 0.5) instead
 
+### Issue: Division by zero during simulation
+**Cause:** `step_size` is too large relative to filament segment lengths in G-code
+**Why it happens:** Volco calculates `number_simulation_steps = round(filament_length / step_size)`. If this rounds to 0, then `step_size = filament_length / number_simulation_steps` causes division by zero
+**Solution:** 
+- Reduce `step_size` (try 0.05mm or 0.02mm instead of 0.1mm)
+- Increase `voxel_size` slightly
+- Check G-code for very short movements (retractions, etc.)
+
 ## Performance Notes
 
 - **Voxel Size Impact:** Smaller = more accurate but exponentially slower (O(n³))
