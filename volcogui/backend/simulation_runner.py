@@ -14,18 +14,41 @@ from PyQt6.QtCore import QThread, pyqtSignal
 class ProgressCapture(io.StringIO):
     """Custom StringIO that captures output and triggers callbacks."""
     
-    def __init__(self, callback):
+    def __init__(self, callback, original_stream=None):
         super().__init__()
         self.callback = callback
         self.buffer = ""
+        self.original_stream = original_stream
         
     def write(self, text):
         super().write(text)
         self.buffer += text
+        
+        # Also write to original stream so we can see console output
+        if self.original_stream:
+            try:
+                self.original_stream.write(text)
+                self.original_stream.flush()
+            except:
+                pass
+        
         # Trigger callback with new text
-        if self.callback:
-            self.callback(text)
+        if self.callback and text.strip():  # Only callback if there's actual content
+            try:
+                self.callback(text)
+            except Exception as e:
+                # Write errors to original stream if available
+                if self.original_stream:
+                    self.original_stream.write(f"[Callback Error: {e}]\n")
         return len(text)
+    
+    def flush(self):
+        """Flush is called by logging handlers."""
+        if self.original_stream:
+            try:
+                self.original_stream.flush()
+            except:
+                pass
 
 
 class SimulationWorker(QThread):
@@ -44,6 +67,31 @@ class SimulationWorker(QThread):
         self.total_filaments = 0
         self.processed_filaments = 0
         self.last_progress_update = 0
+        self.is_running = False
+        self.simulation_start_time = 0
+    
+    def _handle_progress_output(self, text: str):
+        """Handle progress updates from Volco stdout."""
+        import re
+        import time
+        
+        # Look for total filaments count
+        filament_match = re.search(r'Number of printed filaments:\s*(\d+)', text)
+        if filament_match:
+            self.total_filaments = int(filament_match.group(1))
+            self.progress.emit(f"Found {self.total_filaments} filaments to process")
+            self.simulation_start_time = time.time()
+        
+        # Look for "Processing filament X:" (volco only logs 340-343 in debug code)
+        if self.total_filaments > 0:
+            processing_match = re.search(r'Processing filament (\d+):', text)
+            if processing_match:
+                current = int(processing_match.group(1))
+                if current > self.processed_filaments:
+                    self.processed_filaments = current
+                    percentage = int((self.processed_filaments / self.total_filaments) * 100)
+                    elapsed = int(time.time() - self.simulation_start_time) if hasattr(self, 'simulation_start_time') else 0
+                    self.progress.emit(f"Processing filaments... {elapsed}s elapsed (detected {self.processed_filaments}/{self.total_filaments})")
         
     def run(self):
         """Run the simulation in a background thread."""
@@ -52,11 +100,18 @@ class SimulationWorker(QThread):
             
             # Import Volco (add parent directory to path if needed)
             try:
-                # Try to find Volco in a sibling directory
+                # Try to find Volco in multiple locations
                 volco_paths = [
-                    Path(__file__).parent.parent.parent.parent / "volco",  # Sibling to volcogui
-                    Path.home() / "projects" / "gcode" / "volco",  # Common location
+                    # For PyInstaller bundled version
+                    Path(sys._MEIPASS) / "volco" if hasattr(sys, '_MEIPASS') else None,
+                    # Development: sibling to volcogui
+                    Path(__file__).parent.parent.parent.parent / "volco",
+                    # Common development location
+                    Path.home() / "projects" / "gcode" / "volco",
                 ]
+                
+                # Filter out None paths
+                volco_paths = [p for p in volco_paths if p is not None]
                 
                 volco_found = False
                 for volco_path in volco_paths:
@@ -77,8 +132,36 @@ class SimulationWorker(QThread):
                     self.finished.emit(self.output_stl)
                     return
                 
-                # Import Volco
+                # Set up logging capture BEFORE importing volco
+                # This is critical because volco configures logging at module import time
+                import logging
+                
+                # Capture both stdout and stderr with progress tracking
+                old_stdout = sys.stdout
+                old_stderr = sys.stderr
+                captured_output = ProgressCapture(self._handle_progress_output, old_stderr)
+                sys.stdout = captured_output
+                sys.stderr = captured_output
+                
+                # Pre-configure logging BEFORE volco import
+                root_logger = logging.getLogger()
+                # Clear any existing handlers
+                root_logger.handlers.clear()
+                # Add our custom handler
+                new_handler = logging.StreamHandler(captured_output)
+                new_handler.setFormatter(logging.Formatter("%(levelname)s %(asctime)s %(message)s"))
+                root_logger.addHandler(new_handler)
+                root_logger.setLevel(logging.INFO)
+                
+                # Monkey-patch basicConfig to prevent volco from overriding our setup
+                original_basicConfig = logging.basicConfig
+                logging.basicConfig = lambda *args, **kwargs: None
+                
+                # NOW import volco - our logging will be used
                 from volco import run_simulation
+                
+                # Restore basicConfig (just in case)
+                logging.basicConfig = original_basicConfig
                 
                 self.progress.emit("Parsing G-code...")
                 
@@ -89,51 +172,65 @@ class SimulationWorker(QThread):
                 # Create temp directory for results
                 results_folder = str(Path(temp_dir) / "volcogui_results")
                 
-                # Capture stdout to monitor progress
-                old_stdout = sys.stdout
-                sys.stdout = captured_output = io.StringIO()
-                
                 try:
+                    import time
                     self.progress.emit("Running voxel simulation...")
+                    self.is_running = True
+                    self.simulation_start_time = time.time()
+                    
+                    # Start a thread to emit heartbeat updates every 2 seconds
+                    import threading
+                    def heartbeat():
+                        while self.is_running:
+                            time.sleep(2)
+                            if self.is_running:
+                                elapsed = int(time.time() - self.simulation_start_time)
+                                self.progress.emit(f"Voxelizing {self.total_filaments} filaments... {elapsed}s elapsed")
+                    
+                    heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
+                    heartbeat_thread.start()
                     
                     # Run Volco simulation
                     output = run_simulation(
-                    gcode_path=self.gcode_path,
-                    printer_config={
-                        'nozzle_diameter': self.params['nozzle_diameter'],
-                        'feedstock_filament_diameter': 1.75,
-                        'nozzle_jerk_speed': 10.0,
-                        'extruder_jerk_speed': 5.0,
-                        'nozzle_acceleration': 1000.0,
-                        'extruder_acceleration': 5000.0,
-                    },
-                    sim_config={
-                        'simulation_name': 'volcogui_simulation',
-                        'results_folder': results_folder,
-                        'voxel_size': self.params['voxel_size'],
-                        'step_size': self.params['step_size'],
-                        'x_offset': 5 * self.params['nozzle_diameter'],
-                        'y_offset': 5 * self.params['nozzle_diameter'],
-                        'z_offset': 5 * self.params['nozzle_diameter'],
-                        'sphere_z_offset': 0.5 * self.params['nozzle_diameter'],
-                        'x_crop': ['all', 'all'],
-                        'y_crop': ['all', 'all'],
-                        'z_crop': ['all', 'all'],
-                        'radius_increment': 0.001,
-                        'solver_tolerance': 0.0001,
-                        'consider_acceleration': False,
-                        'stl_ascii': False,
-                    }
-                )
+                            gcode_path=self.gcode_path,
+                        printer_config={
+                            'nozzle_diameter': self.params['nozzle_diameter'],
+                            'feedstock_filament_diameter': 1.75,
+                            'nozzle_jerk_speed': 10.0,
+                            'extruder_jerk_speed': 5.0,
+                            'nozzle_acceleration': 1000.0,
+                            'extruder_acceleration': 5000.0,
+                        },
+                        sim_config={
+                            'simulation_name': 'volcogui_simulation',
+                            'results_folder': results_folder,
+                            'voxel_size': self.params['voxel_size'],
+                            'step_size': self.params['step_size'],
+                            'x_offset': 5 * self.params['nozzle_diameter'],
+                            'y_offset': 5 * self.params['nozzle_diameter'],
+                            'z_offset': 5 * self.params['nozzle_diameter'],
+                            'sphere_z_offset': 0.5 * self.params['nozzle_diameter'],
+                            'x_crop': ['all', 'all'],
+                            'y_crop': ['all', 'all'],
+                            'z_crop': ['all', 'all'],
+                            'radius_increment': 0.001,
+                            'solver_tolerance': 0.0001,
+                            'consider_acceleration': False,
+                            'stl_ascii': False,
+                        }
+                    )
                 
+                    self.is_running = False
                     self.progress.emit("Generating mesh...")
                     
                     # Export STL (Volco creates the file in results_folder/simulation_name.stl)
                     output.export_mesh_to_stl()
                     
                 finally:
-                    # Restore stdout
+                    self.is_running = False
+                    # Restore stdout and stderr
                     sys.stdout = old_stdout
+                    sys.stderr = old_stderr
                     output_text = captured_output.getvalue()
                     
                     # Extract progress info for debugging

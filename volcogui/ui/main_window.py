@@ -154,9 +154,23 @@ class MainWindow(QMainWindow):
         
     def _on_simulation_progress(self, message: str):
         """Handle progress updates from simulation."""
+        # DEBUG: Write to file to verify this method is being called
+        import tempfile
+        try:
+            with open(tempfile.gettempdir() + "/volcogui_ui_debug.log", "a") as f:
+                f.write(f"UI received: {message}\n")
+                f.flush()
+        except:
+            pass
+        
         if self.progress_dialog:
             self.progress_dialog.setLabelText(message)
+            # Force immediate update
+            self.progress_dialog.repaint()
         self.status_bar.showMessage(message)
+        # Process events to ensure UI updates
+        from PyQt6.QtCore import QCoreApplication
+        QCoreApplication.processEvents()
         
     def _on_simulation_finished(self, stl_path: str):
         """Handle successful simulation completion."""
