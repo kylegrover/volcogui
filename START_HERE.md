@@ -2,17 +2,19 @@
 
 **A complete cross-platform desktop application for Volco 3D print simulation**
 
-## ⚡ Quick Start (3 Commands)
+## ⚡ Quick Start (2 Commands)
 
 ```bash
 cd volcogui
-uv sync
-uv run python -m volcogui.main
+uv sync                          # Install dependencies (first time only)
+uv run python -m volcogui.main   # Launch the app
 ```
 
-**Or use the automated first-run script:**
-- **Windows:** Double-click `first_run.bat`
-- **Linux/Mac:** `./first_run.sh`
+**Or use the automated scripts:**
+- **Windows:** Double-click `run.bat` or `first_run.bat`
+- **Linux/Mac:** `./run.sh` or `./first_run.sh`
+
+**Note:** Volco must be in the sibling directory (`../volco`) for simulations to work.
 
 ## 📚 Documentation Index
 
@@ -51,6 +53,13 @@ Choose your path based on what you need:
 - Technology stack
 - Project structure
 - Status and achievements
+
+### 🔬 I want to know what we learned
+→ **Read:** [LESSONS_LEARNED.md](LESSONS_LEARNED.md)
+- Volco integration details
+- Common issues & solutions
+- Performance notes
+- Future enhancement ideas
 
 ### 📘 I want full documentation
 → **Read:** [README.md](README.md)
