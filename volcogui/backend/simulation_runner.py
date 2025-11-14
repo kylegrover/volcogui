@@ -1,5 +1,7 @@
 """Simulation runner for Volco."""
 
+import sys
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -25,35 +27,53 @@ class SimulationWorker(QThread):
         try:
             self.progress.emit("Initializing simulation...")
             
-            # Import Volco (only import when needed)
+            # Import Volco (add parent directory to path if needed)
             try:
-                # TODO: Replace this with actual Volco import once installed
-                # from volco import run_simulation
+                # Try to find Volco in a sibling directory
+                volco_paths = [
+                    Path(__file__).parent.parent.parent.parent / "volco",  # Sibling to volcogui
+                    Path.home() / "projects" / "gcode" / "volco",  # Common location
+                ]
                 
-                # For now, we'll create a mock simulation
-                import time
-                time.sleep(1)  # Simulate some work
+                volco_found = False
+                for volco_path in volco_paths:
+                    if volco_path.exists() and (volco_path / "volco.py").exists():
+                        sys.path.insert(0, str(volco_path))
+                        volco_found = True
+                        break
+                
+                if not volco_found:
+                    # Fall back to test mode
+                    self.progress.emit("Volco not found - running in TEST MODE...")
+                    import time
+                    time.sleep(2)
+                    temp_dir = tempfile.gettempdir()
+                    self.output_stl = str(Path(temp_dir) / "volco_output.stl")
+                    self._create_test_stl(self.output_stl)
+                    self.progress.emit("Test simulation complete!")
+                    self.finished.emit(self.output_stl)
+                    return
+                
+                # Import Volco
+                from volco import run_simulation
                 
                 self.progress.emit("Parsing G-code...")
-                time.sleep(1)
-                
-                self.progress.emit("Running voxel simulation...")
-                time.sleep(2)
-                
-                self.progress.emit("Generating mesh...")
-                time.sleep(1)
                 
                 # Create a temporary output file
                 temp_dir = tempfile.gettempdir()
                 self.output_stl = str(Path(temp_dir) / "volco_output.stl")
                 
-                # TODO: Replace with actual Volco simulation
-                """
+                self.progress.emit("Running voxel simulation...")
+                
+                # Create temp directory for results
+                temp_dir = tempfile.gettempdir()
+                results_folder = str(Path(temp_dir) / "volcogui_results")
+                
+                # Run Volco simulation
                 output = run_simulation(
                     gcode_path=self.gcode_path,
                     printer_config={
                         'nozzle_diameter': self.params['nozzle_diameter'],
-                        # Add other printer params with defaults
                         'feedstock_filament_diameter': 1.75,
                         'nozzle_jerk_speed': 10.0,
                         'extruder_jerk_speed': 5.0,
@@ -61,9 +81,10 @@ class SimulationWorker(QThread):
                         'extruder_acceleration': 5000.0,
                     },
                     sim_config={
+                        'simulation_name': 'volcogui_simulation',
+                        'results_folder': results_folder,
                         'voxel_size': self.params['voxel_size'],
                         'step_size': self.params['step_size'],
-                        # Add other sim params with defaults
                         'x_offset': 5 * self.params['nozzle_diameter'],
                         'y_offset': 5 * self.params['nozzle_diameter'],
                         'z_offset': 5 * self.params['nozzle_diameter'],
@@ -78,18 +99,25 @@ class SimulationWorker(QThread):
                     }
                 )
                 
-                # Export STL
-                output.export_mesh_to_stl(self.output_stl)
-                """
+                self.progress.emit("Generating mesh...")
                 
-                # For testing, create a simple cube STL
-                self._create_test_stl(self.output_stl)
+                # Export STL (Volco creates the file in results_folder/simulation_name.stl)
+                output.export_mesh_to_stl()
+                
+                # Get the actual STL path that Volco created
+                actual_stl_path = Path(results_folder) / "volcogui_simulation.stl"
+                
+                # Copy to our output location for consistency
+                if actual_stl_path.exists():
+                    shutil.copy(str(actual_stl_path), self.output_stl)
+                else:
+                    raise FileNotFoundError(f"STL file not found at {actual_stl_path}")
                 
                 self.progress.emit("Simulation complete!")
                 self.finished.emit(self.output_stl)
                 
             except ImportError as e:
-                self.error.emit(f"Volco not found. Please install Volco first.\n\n{str(e)}")
+                self.error.emit(f"Volco import failed: {str(e)}\n\nMake sure Volco is in the correct location.")
                 return
                 
         except Exception as e:
