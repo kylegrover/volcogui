@@ -97,10 +97,6 @@ See [LESSONS_LEARNED.md](LESSONS_LEARNED.md) for more solutions.
 
 Pull requests welcome. See [DEVELOPMENT.md](DEVELOPMENT.md) for architecture details.
 
-## License
-
-MIT License (or specify your license)
-
 ## Credits
 
 - [Volco](https://github.com/FullControlXYZ/volco) - 3D print simulation engine
