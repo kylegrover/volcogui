@@ -67,27 +67,15 @@ This installs:
 If your directory structure is:
 ```
 gcode/
-├── volco/          # Volco repository
-└── volcogui/       # This application
+└── volcogui/       # This application (with volco submodule)
 ```
 
-Then run:
+Volco is included as a git submodule and should already be initialized if you cloned with `--recurse-submodules`.
+
+If the `volco/` directory is empty, run:
 ```bash
-cd ../volco
-uv pip install -e .
-cd ../volcogui
-```
-
-#### Option B: Volco is elsewhere
-
-```bash
-uv pip install -e /path/to/volco
-```
-
-#### Option C: Volco from PyPI (if available)
-
-```bash
-uv pip install volco
+cd volcogui
+git submodule update --init --recursive
 ```
 
 ### Step 5: Verify Installation

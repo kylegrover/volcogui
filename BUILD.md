@@ -3,7 +3,7 @@
 ## Prerequisites
 
 Ensure you have:
-1. Volco installed in `../volco` relative to this project
+1. Volco submodule initialized: `git submodule update --init --recursive`
 2. PyInstaller: `uv pip install pyinstaller`
 
 ## Building with Bundled Volco
@@ -68,8 +68,8 @@ After building:
 ## Troubleshooting
 
 ### Build fails with "Volco not found"
-- Ensure `../volco` directory exists relative to volcogui
-- Check that `../volco/volco.py` exists
+- Ensure `volco` submodule is initialized: `git submodule update --init --recursive`
+- Check that `volco/volco.py` exists
 
 ### Missing module errors during build
 - Add to hidden imports in build.py: `--hidden-import=module_name`

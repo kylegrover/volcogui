@@ -18,20 +18,12 @@ cd volcogui
 uv sync
 ```
 
-### Step 4: Install Volco
-You need to have Volco installed. Either:
+### Step 4: Initialize Volco Submodule
+Volco is included as a git submodule and should already be initialized if you cloned with `--recurse-submodules`.
 
-**Option A: Install from source (if you have Volco locally)**
+If the `volco/` directory is empty, run:
 ```bash
-# Navigate to Volco directory and install
-cd ../volco
-uv pip install -e .
-cd ../volcogui
-```
-
-**Option B: Install from package (if available)**
-```bash
-uv pip install volco
+git submodule update --init --recursive
 ```
 
 ## Running the Application

@@ -106,10 +106,8 @@ class SimulationWorker(QThread):
                 volco_paths = [
                     # For PyInstaller bundled version
                     Path(sys._MEIPASS) / "volco" if hasattr(sys, '_MEIPASS') else None,
-                    # Development: sibling to volcogui
-                    Path(__file__).parent.parent.parent.parent / "volco",
-                    # Common development location
-                    Path.home() / "projects" / "gcode" / "volco",
+                    # Development: submodule in volcogui/volco
+                    Path(__file__).parent.parent.parent / "volco",
                 ]
                 
                 # Filter out None paths

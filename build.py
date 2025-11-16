@@ -11,10 +11,10 @@ def build():
     print("Building VolcoGUI executable with bundled Volco...")
     
     # Check if Volco exists
-    volco_path = Path(__file__).parent.parent / "volco"
+    volco_path = Path(__file__).parent / "volco"
     if not volco_path.exists():
         print(f"ERROR: Volco not found at {volco_path}")
-        print("Please ensure Volco is in ../volco relative to this project")
+        print("Please ensure Volco submodule is initialized: git submodule update --init")
         sys.exit(1)
     
     print(f"✓ Found Volco at {volco_path}")

@@ -6,7 +6,7 @@
 
 1. **Volco is not a pip package** - It exists only on GitHub without `setup.py` or `pyproject.toml`
    - Solution: Add Volco directory to Python path dynamically at runtime
-   - Location: Automatically detected in sibling directory (`../volco`)
+   - Location: Included as git submodule in `volco/` directory
 
 2. **Required Volco Dependencies**
    - All dependencies from Volco's `requirements.txt` must be installed in volcogui
@@ -33,7 +33,7 @@
 ```python
 # Check these locations in order:
 volco_paths = [
-    Path(__file__).parent.parent.parent.parent / "volco",  # Sibling to volcogui
+    Path(__file__).parent.parent.parent / "volco",  # Submodule in volcogui/volco
     Path.home() / "projects" / "gcode" / "volco",  # Common location
 ]
 ```

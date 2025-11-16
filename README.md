@@ -20,17 +20,21 @@ Desktop GUI for [Volco](https://github.com/FullControlXYZ/volco), a 3D printing 
 
 ## Quick Start (Development)
 
-**Prerequisites:** [uv](https://github.com/astral-sh/uv) package manager, Volco in `../volco`
+**Prerequisites:** [uv](https://github.com/astral-sh/uv) package manager
 
 ```bash
 # Setup
-git clone https://github.com/FullControlXYZ/volco.git
-git clone https://github.com/kylegrover/volcogui.git
+git clone --recurse-submodules https://github.com/kylegrover/volcogui.git
 cd volcogui
 uv sync
 
 # Run
 uv run python -m volcogui.main
+```
+
+If you already cloned without submodules:
+```bash
+git submodule update --init --recursive
 ```
 
 Or use convenience scripts: `run.bat` (Windows) / `./run.sh` (Mac/Linux)
@@ -69,7 +73,7 @@ uv run python build.py
 
 ## Troubleshooting
 
-**"Volco not found"**: Ensure `../volco` exists (dev mode) or use bundled release.
+**"Volco not found"**: Run `git submodule update --init` (dev mode) or use bundled release.
 
 **"Division by zero"**: `step_size` too large. Reduce to ≤0.1mm.
 

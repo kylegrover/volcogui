@@ -14,7 +14,7 @@ uv run python -m volcogui.main   # Launch the app
 - **Windows:** Double-click `run.bat` or `first_run.bat`
 - **Linux/Mac:** `./run.sh` or `./first_run.sh`
 
-**Note:** Volco must be in the sibling directory (`../volco`) for simulations to work.
+**Note:** Ensure Volco submodule is initialized: `git submodule update --init --recursive`
 
 ## 📚 Documentation Index
 
