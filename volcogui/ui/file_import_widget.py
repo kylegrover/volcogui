@@ -33,7 +33,8 @@ class FileImportWidget(QGroupBox):
                 padding: 30px;
                 background-color: #f5f5f5;
                 color: #666;
-                font-size: 13px;
+                font-size: 14px;
+                letter-spacing: 0.5px;
             }
         """)
         self.drop_area.setMinimumHeight(100)

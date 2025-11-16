@@ -3,7 +3,8 @@
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QPushButton, QGroupBox, QMessageBox,
-    QSplitter, QStatusBar, QProgressDialog
+    QSplitter, QStatusBar, QProgressDialog, QScrollArea,
+    QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
@@ -49,8 +50,8 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left_panel)
         splitter.addWidget(self.viewer_widget)
-        splitter.setStretchFactor(0, 1)  # Left panel
-        splitter.setStretchFactor(1, 2)  # Right panel gets more space
+        splitter.setStretchFactor(0, 2)  # Left panel
+        splitter.setStretchFactor(1, 3)  # Right panel gets more space
         
         main_layout.addWidget(splitter)
         
@@ -63,20 +64,34 @@ class MainWindow(QMainWindow):
         """Create the left control panel."""
         panel = QWidget()
         layout = QVBoxLayout(panel)
-        layout.setSpacing(15)
+        layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_area.setStyleSheet("QScrollArea { border: 0; }")
+        layout.addWidget(scroll_area, stretch=1)
+        
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setSpacing(5)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_area.setWidget(scroll_content)
         
         # Title
         title = QLabel("Volco 3D Print Simulator")
-        title.setStyleSheet("font-size: 18px; font-weight: bold; padding: 10px;")
-        layout.addWidget(title)
+        title.setStyleSheet("font-size: 18px; font-weight: bold; padding: 10px 0 5px 0;")
+        scroll_layout.addWidget(title)
         
         # File import section
         self.file_import = FileImportWidget()
-        layout.addWidget(self.file_import)
+        scroll_layout.addWidget(self.file_import)
         
         # Parameter section
         self.parameters = ParameterWidget()
-        layout.addWidget(self.parameters)
+        scroll_layout.addWidget(self.parameters)
+        scroll_layout.addStretch()
         
         # Run button
         self.run_button = QPushButton("Run Simulation")
@@ -97,17 +112,17 @@ class MainWindow(QMainWindow):
                 color: #666666;
             }
         """)
+        self.run_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.run_button.setEnabled(False)
         layout.addWidget(self.run_button)
-        
-        # Spacer
-        layout.addStretch()
         
         # Info section
         info_label = QLabel("ℹ️ Drag & drop a .gcode file or use the import button above")
         info_label.setStyleSheet("color: #666; font-size: 11px; padding: 10px;")
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
+        
+        layout.addStretch()
         
         panel.setMaximumWidth(400)
         return panel

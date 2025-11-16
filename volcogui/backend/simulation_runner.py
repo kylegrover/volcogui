@@ -195,33 +195,37 @@ class SimulationWorker(QThread):
                     heartbeat_thread.start()
                     
                     # Run Volco simulation
+                    printer_config = {
+                      'nozzle_diameter': self.params['nozzle_diameter'],
+                      'feedstock_filament_diameter': self.params.get('feedstock_filament_diameter', 1.75),
+                      'nozzle_jerk_speed': self.params.get('nozzle_jerk_speed', 10.0),
+                      'extruder_jerk_speed': self.params.get('extruder_jerk_speed', 5.0),
+                      'nozzle_acceleration': self.params.get('nozzle_acceleration', 1000.0),
+                      'extruder_acceleration': self.params.get('extruder_acceleration', 5000.0),
+                    }
+
+                    sim_config = {
+                      'simulation_name': 'volcogui_simulation',
+                      'results_folder': results_folder,
+                      'voxel_size': self.params['voxel_size'],
+                      'step_size': self.params['step_size'],
+                      'x_offset': 5 * self.params['nozzle_diameter'],
+                      'y_offset': 5 * self.params['nozzle_diameter'],
+                      'z_offset': 5 * self.params['nozzle_diameter'],
+                      'sphere_z_offset': 0.5 * self.params['nozzle_diameter'],
+                      'x_crop': ['all', 'all'],
+                      'y_crop': ['all', 'all'],
+                      'z_crop': ['all', 'all'],
+                      'radius_increment': self.params.get('radius_increment', 0.001),
+                      'solver_tolerance': self.params.get('solver_tolerance', 0.0001),
+                      'consider_acceleration': self.params.get('consider_acceleration', False),
+                      'stl_ascii': self.params.get('stl_ascii', False),
+                    }
+
                     output = run_simulation(
-                            gcode_path=self.gcode_path,
-                        printer_config={
-                            'nozzle_diameter': self.params['nozzle_diameter'],
-                            'feedstock_filament_diameter': 1.75,
-                            'nozzle_jerk_speed': 10.0,
-                            'extruder_jerk_speed': 5.0,
-                            'nozzle_acceleration': 1000.0,
-                            'extruder_acceleration': 5000.0,
-                        },
-                        sim_config={
-                            'simulation_name': 'volcogui_simulation',
-                            'results_folder': results_folder,
-                            'voxel_size': self.params['voxel_size'],
-                            'step_size': self.params['step_size'],
-                            'x_offset': 5 * self.params['nozzle_diameter'],
-                            'y_offset': 5 * self.params['nozzle_diameter'],
-                            'z_offset': 5 * self.params['nozzle_diameter'],
-                            'sphere_z_offset': 0.5 * self.params['nozzle_diameter'],
-                            'x_crop': ['all', 'all'],
-                            'y_crop': ['all', 'all'],
-                            'z_crop': ['all', 'all'],
-                            'radius_increment': 0.001,
-                            'solver_tolerance': 0.0001,
-                            'consider_acceleration': False,
-                            'stl_ascii': False,
-                        }
+                      gcode_path=self.gcode_path,
+                      printer_config=printer_config,
+                      sim_config=sim_config
                     )
                 
                     self.is_running = False
