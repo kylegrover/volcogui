@@ -79,19 +79,21 @@ class SimulationWorker(QThread):
         filament_match = re.search(r'Number of printed filaments:\s*(\d+)', text)
         if filament_match:
             self.total_filaments = int(filament_match.group(1))
+            self.processed_filaments = 0  # Reset counter
             self.progress.emit(f"Found {self.total_filaments} filaments to process")
             self.simulation_start_time = time.time()
         
-        # Look for "Processing filament X:" (volco only logs 340-343 in debug code)
+        # Count "Depositing filament: step = 1/X" which indicates a NEW filament starting
         if self.total_filaments > 0:
-            processing_match = re.search(r'Processing filament (\d+):', text)
-            if processing_match:
-                current = int(processing_match.group(1))
-                if current > self.processed_filaments:
-                    self.processed_filaments = current
-                    percentage = int((self.processed_filaments / self.total_filaments) * 100)
+            # Match "step = 1" which means starting a new filament
+            step_one_match = re.search(r'Depositing filament:\s*step\s*=\s*1/', text)
+            if step_one_match:
+                self.processed_filaments += 1
+                percentage = int((self.processed_filaments / self.total_filaments) * 100)
+                # Emit every 5% to avoid UI spam
+                if percentage % 5 == 0 or self.processed_filaments == self.total_filaments:
                     elapsed = int(time.time() - self.simulation_start_time) if hasattr(self, 'simulation_start_time') else 0
-                    self.progress.emit(f"Processing filaments... {elapsed}s elapsed (detected {self.processed_filaments}/{self.total_filaments})")
+                    self.progress.emit(f"Voxelizing filament {self.processed_filaments}/{self.total_filaments} ({percentage}%) - {elapsed}s elapsed")
         
     def run(self):
         """Run the simulation in a background thread."""
@@ -132,10 +134,11 @@ class SimulationWorker(QThread):
                     self.finished.emit(self.output_stl)
                     return
                 
-                # Set up logging capture BEFORE importing volco
-                # This is critical because volco configures logging at module import time
+                # Import volco first to let it configure logging normally
                 import logging
+                from volco import run_simulation
                 
+                # NOW reconfigure logging to capture output AFTER volco has imported everything
                 # Capture both stdout and stderr with progress tracking
                 old_stdout = sys.stdout
                 old_stderr = sys.stderr
@@ -143,25 +146,26 @@ class SimulationWorker(QThread):
                 sys.stdout = captured_output
                 sys.stderr = captured_output
                 
-                # Pre-configure logging BEFORE volco import
+                # Reconfigure ALL existing loggers to use our handler
                 root_logger = logging.getLogger()
-                # Clear any existing handlers
-                root_logger.handlers.clear()
-                # Add our custom handler
+                
+                # Remove all existing handlers
+                for handler in root_logger.handlers[:]:
+                    root_logger.removeHandler(handler)
+                
+                # Add our custom handler that writes to captured_output
                 new_handler = logging.StreamHandler(captured_output)
                 new_handler.setFormatter(logging.Formatter("%(levelname)s %(asctime)s %(message)s"))
+                new_handler.setLevel(logging.INFO)
                 root_logger.addHandler(new_handler)
                 root_logger.setLevel(logging.INFO)
                 
-                # Monkey-patch basicConfig to prevent volco from overriding our setup
-                original_basicConfig = logging.basicConfig
-                logging.basicConfig = lambda *args, **kwargs: None
-                
-                # NOW import volco - our logging will be used
-                from volco import run_simulation
-                
-                # Restore basicConfig (just in case)
-                logging.basicConfig = original_basicConfig
+                # CRITICAL: Force all child loggers to use parent handlers
+                # This ensures volco's module loggers (like voxel_space) use our handler
+                for logger_name in logging.root.manager.loggerDict:
+                    logger_obj = logging.getLogger(logger_name)
+                    logger_obj.handlers = []
+                    logger_obj.propagate = True  # Ensure it uses root logger's handlers
                 
                 self.progress.emit("Parsing G-code...")
                 
