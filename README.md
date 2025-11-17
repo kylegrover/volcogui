@@ -75,9 +75,7 @@ uv run python build.py
 
 **"Volco not found"**: Run `git submodule update --init` (dev mode) or use bundled release.
 
-**"Division by zero"**: `step_size` too large. Reduce to ≤0.1mm.
-
-**Slow simulation**: Reduce `voxel_size` (0.2mm for preview, 0.05mm for quality).
+**Slow simulation**: Increase `voxel_size` or `step_size` (0.2mm for preview, 0.05mm for quality).
 
 **Missing dependencies**: Run `uv sync`
 
