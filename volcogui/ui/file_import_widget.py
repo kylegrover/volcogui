@@ -28,11 +28,11 @@ class FileImportWidget(QGroupBox):
         self.drop_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.drop_area.setStyleSheet("""
             QLabel {
-                border: 2px dashed #aaa;
+                border: 2px dashed #555;
                 border-radius: 5px;
                 padding: 30px;
-                background-color: #f5f5f5;
-                color: #666;
+                background-color: #2d2d2d;
+                color: #999;
                 font-size: 14px;
                 letter-spacing: 0.5px;
             }
@@ -42,7 +42,7 @@ class FileImportWidget(QGroupBox):
         
         # File name label
         self.file_label = QLabel("No file selected")
-        self.file_label.setStyleSheet("color: #666; font-size: 11px; padding: 5px;")
+        self.file_label.setStyleSheet("color: #999; font-size: 11px; padding: 5px;")
         self.file_label.setWordWrap(True)
         layout.addWidget(self.file_label)
         
@@ -67,8 +67,8 @@ class FileImportWidget(QGroupBox):
                         border: 2px dashed #4CAF50;
                         border-radius: 5px;
                         padding: 30px;
-                        background-color: #e8f5e9;
-                        color: #2e7d32;
+                        background-color: #2d4a2e;
+                        color: #66bb6a;
                         font-size: 13px;
                     }
                 """)
@@ -77,11 +77,11 @@ class FileImportWidget(QGroupBox):
         """Handle drag leave event."""
         self.drop_area.setStyleSheet("""
             QLabel {
-                border: 2px dashed #aaa;
+                border: 2px dashed #555;
                 border-radius: 5px;
                 padding: 30px;
-                background-color: #f5f5f5;
-                color: #666;
+                background-color: #2d2d2d;
+                color: #999;
                 font-size: 13px;
             }
         """)
@@ -120,8 +120,8 @@ class FileImportWidget(QGroupBox):
                 border: 2px solid #4CAF50;
                 border-radius: 5px;
                 padding: 30px;
-                background-color: #e8f5e9;
-                color: #2e7d32;
+                background-color: #2d4a2e;
+                color: #66bb6a;
                 font-size: 13px;
                 font-weight: bold;
             }

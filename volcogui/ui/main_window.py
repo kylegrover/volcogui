@@ -28,8 +28,130 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("VolcoGUI - 3D Print Simulator")
         self.setMinimumSize(1200, 800)
         
+        self._apply_dark_theme()
         self._setup_ui()
         self._connect_signals()
+    
+    def _apply_dark_theme(self):
+        """Apply dark theme to the application."""
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #1e1e1e;
+            }
+            QWidget {
+                background-color: #1e1e1e;
+                color: #e0e0e0;
+            }
+            QGroupBox {
+                background-color: #252525;
+                border: 1px solid #3a3a3a;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+                font-weight: 500;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 2px 5px;
+                left: 15px;
+                color: #b0b0b0;
+            }
+            QLabel {
+                background-color: transparent;
+                color: #e0e0e0;
+            }
+            QPushButton {
+                background-color: #2d2d2d;
+                color: #e0e0e0;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #3a3a3a;
+                border-color: #4a4a4a;
+            }
+            QPushButton:pressed {
+                background-color: #252525;
+            }
+            QPushButton:disabled {
+                background-color: #2a2a2a;
+                color: #666666;
+                border-color: #333333;
+            }
+            QDoubleSpinBox, QSpinBox {
+                background-color: #2d2d2d;
+                color: #e0e0e0;
+                border: 1px solid #3a3a3a;
+                border-radius: 3px;
+                padding: 4px;
+                selection-background-color: #4a90d9;
+            }
+            QDoubleSpinBox:hover, QSpinBox:hover {
+                border-color: #4a4a4a;
+            }
+            QDoubleSpinBox:focus, QSpinBox:focus {
+                border-color: #4a90d9;
+            }
+            QCheckBox {
+                color: #e0e0e0;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid #3a3a3a;
+                border-radius: 3px;
+                background-color: #2d2d2d;
+            }
+            QCheckBox::indicator:hover {
+                border-color: #4a4a4a;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #4a90d9;
+                border-color: #4a90d9;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS41IDEwLjVMMiA3bDEuNS0xLjVMNS41IDcuNSAxMi41IDJsMS41IDEuNXoiIGZpbGw9IndoaXRlIi8+PC9zdmc+);
+            }
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background-color: #252525;
+                width: 10px;
+                margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #4a4a4a;
+                border-radius: 5px;
+                min-height: 30px;
+                margin: 2px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #5a5a5a;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+                border: none;
+                background: none;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+            QStatusBar {
+                background-color: #252525;
+                color: #b0b0b0;
+                border-top: 1px solid #3a3a3a;
+            }
+            QSplitter::handle {
+                background-color: #2d2d2d;
+            }
+            QSplitter::handle:hover {
+                background-color: #3a3a3a;
+            }
+        """)
         
     def _setup_ui(self):
         """Set up the user interface."""
@@ -79,10 +201,10 @@ class MainWindow(QMainWindow):
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         scroll_area.setWidget(scroll_content)
         
-        # Title
-        title = QLabel("Volco 3D Print Simulator")
-        title.setStyleSheet("font-size: 18px; font-weight: bold; padding: 10px 0 5px 0;")
-        scroll_layout.addWidget(title)
+        # Title (redundant with main window title)
+        # title = QLabel("Volco 3D Print Simulator")
+        # title.setStyleSheet("font-size: 18px; font-weight: bold; padding: 10px 0 5px 0; color: #f0f0f0;")
+        # scroll_layout.addWidget(title)
         
         # File import section
         self.file_import = FileImportWidget()
@@ -103,12 +225,13 @@ class MainWindow(QMainWindow):
                 font-weight: bold;
                 padding: 12px;
                 border-radius: 5px;
+                border: none;
             }
             QPushButton:hover {
                 background-color: #45a049;
             }
             QPushButton:disabled {
-                background-color: #cccccc;
+                background-color: #2a4a2b;
                 color: #666666;
             }
         """)
@@ -118,7 +241,7 @@ class MainWindow(QMainWindow):
         
         # Info section
         info_label = QLabel("ℹ️ Drag & drop a .gcode file or use the import button above")
-        info_label.setStyleSheet("color: #666; font-size: 11px; padding: 10px;")
+        info_label.setStyleSheet("color: #888; font-size: 11px; padding: 10px;")
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
         
