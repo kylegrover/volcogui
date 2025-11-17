@@ -15,6 +15,18 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 
+class NoWheelSpinBox(QDoubleSpinBox):
+    """QDoubleSpinBox variant that ignores mouse wheel events.
+
+    This prevents accidental value changes when the user scrolls the
+    parameter panel.
+    """
+
+    def wheelEvent(self, event):
+        event.ignore()
+        return
+
+
 class ParameterWidget(QWidget):
     """Widget for configuring simulation and printer parameters."""
     
@@ -35,7 +47,7 @@ class ParameterWidget(QWidget):
         basic_layout.setContentsMargins(10, 10, 10, 10)
         
         # Nozzle diameter with [– value +]
-        self.nozzle_diameter = QDoubleSpinBox()
+        self.nozzle_diameter = NoWheelSpinBox()
         self.nozzle_diameter.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.nozzle_diameter.setDecimals(2)
         self.nozzle_diameter.setRange(0.1, 5.0)
@@ -64,7 +76,7 @@ class ParameterWidget(QWidget):
         nozzle_minus.clicked.connect(lambda: self.nozzle_diameter.stepDown())
 
         # Voxel size with [– value +]
-        self.voxel_size = QDoubleSpinBox()
+        self.voxel_size = NoWheelSpinBox()
         self.voxel_size.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.voxel_size.setDecimals(3)
         self.voxel_size.setRange(0.001, 10.0)
@@ -92,7 +104,7 @@ class ParameterWidget(QWidget):
         voxel_minus.clicked.connect(lambda: self.voxel_size.stepDown())
 
         # Step size with [– value +]
-        self.step_size = QDoubleSpinBox()
+        self.step_size = NoWheelSpinBox()
         self.step_size.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.step_size.setDecimals(3)
         self.step_size.setRange(0.001, 10.0)
@@ -132,7 +144,7 @@ class ParameterWidget(QWidget):
         printer_layout.setContentsMargins(10, 15, 10, 10)
         
         # Feedstock filament diameter with [− value +]
-        self.feedstock_diameter = QDoubleSpinBox()
+        self.feedstock_diameter = NoWheelSpinBox()
         self.feedstock_diameter.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.feedstock_diameter.setDecimals(2)
         self.feedstock_diameter.setRange(0.5, 3.5)
@@ -160,7 +172,7 @@ class ParameterWidget(QWidget):
         feed_minus.clicked.connect(lambda: self.feedstock_diameter.stepDown())
 
         # Nozzle jerk speed with [− value +]
-        self.nozzle_jerk_speed = QDoubleSpinBox()
+        self.nozzle_jerk_speed = NoWheelSpinBox()
         self.nozzle_jerk_speed.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.nozzle_jerk_speed.setDecimals(1)
         self.nozzle_jerk_speed.setRange(0.0, 200.0)
@@ -188,7 +200,7 @@ class ParameterWidget(QWidget):
         jerk_minus.clicked.connect(lambda: self.nozzle_jerk_speed.stepDown())
 
         # Extruder jerk speed with [− value +]
-        self.extruder_jerk_speed = QDoubleSpinBox()
+        self.extruder_jerk_speed = NoWheelSpinBox()
         self.extruder_jerk_speed.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.extruder_jerk_speed.setDecimals(1)
         self.extruder_jerk_speed.setRange(0.0, 200.0)
@@ -216,7 +228,7 @@ class ParameterWidget(QWidget):
         ext_jerk_minus.clicked.connect(lambda: self.extruder_jerk_speed.stepDown())
 
         # Nozzle acceleration with [− value +]
-        self.nozzle_acceleration = QDoubleSpinBox()
+        self.nozzle_acceleration = NoWheelSpinBox()
         self.nozzle_acceleration.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.nozzle_acceleration.setDecimals(0)
         self.nozzle_acceleration.setRange(0, 50000)
@@ -244,7 +256,7 @@ class ParameterWidget(QWidget):
         accel_minus.clicked.connect(lambda: self.nozzle_acceleration.stepDown())
 
         # Extruder acceleration with [− value +]
-        self.extruder_acceleration = QDoubleSpinBox()
+        self.extruder_acceleration = NoWheelSpinBox()
         self.extruder_acceleration.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.extruder_acceleration.setDecimals(0)
         self.extruder_acceleration.setRange(0, 50000)
@@ -288,7 +300,7 @@ class ParameterWidget(QWidget):
         sim_layout.addRow("Acceleration Model:", self.consider_acceleration)
         
         # Radius increment with [− value +]
-        self.radius_increment = QDoubleSpinBox()
+        self.radius_increment = NoWheelSpinBox()
         self.radius_increment.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.radius_increment.setDecimals(4)
         self.radius_increment.setRange(0.0001, 0.01)
@@ -316,7 +328,7 @@ class ParameterWidget(QWidget):
         rad_minus.clicked.connect(lambda: self.radius_increment.stepDown())
 
         # Solver tolerance with [− value +]
-        self.solver_tolerance = QDoubleSpinBox()
+        self.solver_tolerance = NoWheelSpinBox()
         self.solver_tolerance.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.solver_tolerance.setDecimals(5)
         self.solver_tolerance.setRange(0.00001, 0.01)
