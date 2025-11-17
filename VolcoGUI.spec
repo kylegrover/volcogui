@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('C:\\Users\\kyle\\projects\\gcode\\volco', 'volco'), ('README.md', '.')]
+datas = [('C:\\Users\\kyle\\projects\\gcode\\volcogui\\volco', 'volco'), ('README.md', '.')]
 binaries = []
 hiddenimports = ['vtkmodules', 'vtkmodules.all', 'vtkmodules.qt.QVTKRenderWindowInteractor', 'vtkmodules.util', 'vtkmodules.util.numpy_support', 'numpy', 'scipy', 'trimesh', 'skimage', 'plotly']
 tmp_ret = collect_all('pyvista')
