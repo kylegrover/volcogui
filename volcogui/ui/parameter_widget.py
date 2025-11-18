@@ -360,6 +360,14 @@ class ParameterWidget(QWidget):
         self.stl_ascii.setChecked(False)
         self.stl_ascii.setToolTip("Enable to generate human-readable STL output instead of binary")
         sim_layout.addRow("STL Format:", self.stl_ascii)
+
+        # Preview mode (fast, lightweight visualization)
+        self.preview_mode = QCheckBox("Preview Mode (fast)")
+        self.preview_mode.setChecked(False)
+        self.preview_mode.setToolTip(
+            "Run a fast preview that traces the G-code path and fills extrusions without physics or overlap checks"
+        )
+        sim_layout.addRow("Preview Mode:", self.preview_mode)
         
         sim_group.setLayout(sim_layout)
         wrapper_layout.addWidget(sim_group)
@@ -380,6 +388,7 @@ class ParameterWidget(QWidget):
             'radius_increment': self.radius_increment.value(),
             'solver_tolerance': self.solver_tolerance.value(),
             'stl_ascii': self.stl_ascii.isChecked(),
+            'preview_mode': self.preview_mode.isChecked(),
         }
     
     def set_parameters(self, params: dict):
@@ -408,6 +417,8 @@ class ParameterWidget(QWidget):
             self.solver_tolerance.setValue(params['solver_tolerance'])
         if 'stl_ascii' in params:
             self.stl_ascii.setChecked(bool(params['stl_ascii']))
+        if 'preview_mode' in params:
+            self.preview_mode.setChecked(bool(params['preview_mode']))
 
     def _toggle_advanced(self, expanded: bool):
         """Show or hide advanced settings container."""

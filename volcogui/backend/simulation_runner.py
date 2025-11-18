@@ -218,6 +218,7 @@ class SimulationWorker(QThread):
                       'solver_tolerance': self.params.get('solver_tolerance', 0.0001),
                       'consider_acceleration': self.params.get('consider_acceleration', False),
                       'stl_ascii': self.params.get('stl_ascii', False),
+                      'preview_mode': self.params.get('preview_mode', False),
                     }
 
                     output = run_simulation(
