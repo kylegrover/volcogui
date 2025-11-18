@@ -1,6 +1,6 @@
 # VolcoGUI
 
-Desktop GUI for [Volco](https://github.com/FullControlXYZ/volco), a 3D printing voxel simulator. Provides drag-and-drop G-code import, parameter configuration, and interactive 3D STL visualization.
+Desktop GUI for [Volco](https://github.com/kylegrover/volco), a 3D printing voxel simulator. Provides drag-and-drop G-code import, parameter configuration, and interactive 3D STL visualization.
 
 ## Download
 
@@ -101,6 +101,6 @@ Pull requests welcome. See [DEVELOPMENT.md](DEVELOPMENT.md) for architecture det
 
 ## Credits
 
-- [Volco](https://github.com/FullControlXYZ/volco) - 3D print simulation engine
+- [Volco](https://github.com/kylegrover/volco) - 3D print simulation engine
 - [PyVista](https://pyvista.org/) - VTK visualization
 - [uv](https://github.com/astral-sh/uv) - Python packaging
