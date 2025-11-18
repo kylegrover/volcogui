@@ -4,7 +4,7 @@ Desktop GUI for [Volco](https://github.com/kylegrover/volco), a 3D printing voxe
 
 ## Download
 
-**Latest Release:** [v0.3.0](https://github.com/kylegrover/volcogui/releases/tag/v0.3.0)
+**Latest Release:** [v0.3.0-beta](https://github.com/kylegrover/volcogui/releases/tag/v0.3.0-beta)
 
 **Windows:** Download `VolcoGUI_v0.3.zip`, extract, and run `VolcoGUI.exe`. No installation required - Volco is bundled.
 
