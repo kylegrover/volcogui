@@ -1,6 +1,6 @@
 [project]
 name = "volcogui"
-version = "0.3.0"
+version = "0.3.1"
 description = "GUI application for Volco 3D printing simulator"
 requires-python = ">=3.9"
 dependencies = [
