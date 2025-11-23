@@ -276,20 +276,58 @@ class MainWindow(QMainWindow):
         self.parameters.setEnabled(False)
         
         # Create progress dialog
-        self.progress_dialog = QProgressDialog("Initializing...", "Cancel", 0, 0, self)
+        self.progress_dialog = QProgressDialog("Initializing...", "Cancel", 0, 100, self)
         self.progress_dialog.setWindowTitle("Running Simulation")
         self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.setFixedWidth(360)
+        self.progress_dialog.setStyleSheet("""
+            QProgressDialog {
+                background-color: #252525;
+                color: #e0e0e0;
+            }
+            QLabel {
+                color: #e0e0e0;
+                font-weight: bold;
+            }
+            QProgressBar {
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                text-align: center;
+                background-color: #2d2d2d;
+                color: #e0e0e0;
+            }
+            QProgressBar::chunk {
+                background-color: #4a90d9;
+                border-radius: 3px;
+            }
+            QPushButton {
+                background-color: #2d2d2d;
+                color: #e0e0e0;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #3a3a3a;
+            }
+        """)
         self.progress_dialog.canceled.connect(self._cancel_simulation)
         self.progress_dialog.show()
         
         # Create and start worker thread
         self.simulation_worker = SimulationWorker(self.gcode_file, params)
         self.simulation_worker.progress.connect(self._on_simulation_progress)
+        self.simulation_worker.progress_percent.connect(self._on_simulation_progress_percent)
         self.simulation_worker.finished.connect(self._on_simulation_finished)
         self.simulation_worker.error.connect(self._on_simulation_error)
         self.simulation_worker.start()
         
+    def _on_simulation_progress_percent(self, percent: int):
+        """Handle progress percentage updates."""
+        if self.progress_dialog:
+            self.progress_dialog.setValue(percent)
+
     def _on_simulation_progress(self, message: str):
         """Handle progress updates from simulation."""
         # DEBUG: Write to file to verify this method is being called
@@ -314,6 +352,7 @@ class MainWindow(QMainWindow):
         """Handle successful simulation completion."""
         if self.progress_dialog:
             self.progress_dialog.close()
+            self.progress_dialog = None
             
         self.output_stl = stl_path
         self.viewer_widget.load_stl(stl_path)
@@ -329,6 +368,7 @@ class MainWindow(QMainWindow):
         """Handle simulation error."""
         if self.progress_dialog:
             self.progress_dialog.close()
+            self.progress_dialog = None
             
         QMessageBox.critical(self, "Simulation Error", error_message)
         self.status_bar.showMessage("Simulation failed")
@@ -340,9 +380,16 @@ class MainWindow(QMainWindow):
         
     def _cancel_simulation(self):
         """Cancel the running simulation."""
-        if self.simulation_worker and self.simulation_worker.isRunning():
-            self.simulation_worker.terminate()
-            self.simulation_worker.wait()
+        if self.simulation_worker:
+            # Signal the heartbeat thread to stop
+            self.simulation_worker.is_running = False
+            
+            if self.simulation_worker.isRunning():
+                self.simulation_worker.terminate()
+                self.simulation_worker.wait()
+        
+        # Clear the dialog reference so we don't try to update it
+        self.progress_dialog = None
             
         self.status_bar.showMessage("Simulation canceled")
         

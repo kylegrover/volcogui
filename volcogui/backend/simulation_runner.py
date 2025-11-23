@@ -56,6 +56,7 @@ class SimulationWorker(QThread):
     
     # Signals
     progress = pyqtSignal(str)  # Progress message
+    progress_percent = pyqtSignal(int) # Progress percentage
     finished = pyqtSignal(str)  # Output STL file path
     error = pyqtSignal(str)     # Error message
     
@@ -75,6 +76,40 @@ class SimulationWorker(QThread):
         import re
         import time
         
+        # New format: INFO ... Deposited step 1/42 (~layer: 0): from ... to ...
+        new_matches = re.findall(r'Deposited step\s+(\d+)/(\d+)\s+\(~layer:\s*(\d+)\).*?to\s+\(([^)]+)\)', text)
+        if new_matches:
+            # Use the last match to update state to the latest progress
+            last_match = new_matches[-1]
+            step = int(last_match[0])
+            max_step = int(last_match[1])
+            layer = int(last_match[2])
+            coords_str = last_match[3]
+            
+            # Parse coordinates "x, y, z"
+            try:
+                xyz = [float(c.strip()) for c in coords_str.split(',')]
+            except ValueError:
+                xyz = [0.0, 0.0, 0.0]
+
+            # Update state
+            self.processed_filaments = step
+            self.total_filaments = max_step
+            
+            if self.simulation_start_time == 0:
+                self.simulation_start_time = time.time()
+            
+            percentage = int((self.processed_filaments / self.total_filaments) * 100) if self.total_filaments > 0 else 0
+            
+            # Emit if enough time has passed (100ms) or if it's the last step
+            current_time = time.time()
+            if (current_time - self.last_progress_update > 0.1) or (self.processed_filaments == self.total_filaments):
+                elapsed = int(current_time - self.simulation_start_time)
+                self.progress.emit(f"Voxelizing step {self.processed_filaments}/{self.total_filaments} - {elapsed}s elapsed")
+                self.progress_percent.emit(percentage)
+                self.last_progress_update = current_time
+            return
+        
         # Look for total filaments count
         filament_match = re.search(r'Number of printed filaments:\s*(\d+)', text)
         if filament_match:
@@ -93,7 +128,8 @@ class SimulationWorker(QThread):
                 # Emit every 5% to avoid UI spam
                 if percentage % 5 == 0 or self.processed_filaments == self.total_filaments:
                     elapsed = int(time.time() - self.simulation_start_time) if hasattr(self, 'simulation_start_time') else 0
-                    self.progress.emit(f"Voxelizing filament {self.processed_filaments}/{self.total_filaments} ({percentage}%) - {elapsed}s elapsed")
+                    self.progress.emit(f"Voxelizing filament {self.processed_filaments}/{self.total_filaments} - {elapsed}s elapsed")
+                    self.progress_percent.emit(percentage)
         
     def run(self):
         """Run the simulation in a background thread."""
@@ -187,7 +223,12 @@ class SimulationWorker(QThread):
                             time.sleep(2)
                             if self.is_running:
                                 elapsed = int(time.time() - self.simulation_start_time)
-                                self.progress.emit(f"Voxelizing {self.total_filaments} filaments... {elapsed}s elapsed")
+                                if self.total_filaments > 0:
+                                    percentage = int((self.processed_filaments / self.total_filaments) * 100)
+                                    self.progress.emit(f"Voxelizing step {self.processed_filaments}/{self.total_filaments} - {elapsed}s elapsed")
+                                    self.progress_percent.emit(percentage)
+                                else:
+                                    self.progress.emit(f"Voxelizing... {elapsed}s elapsed")
                     
                     heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
                     heartbeat_thread.start()
