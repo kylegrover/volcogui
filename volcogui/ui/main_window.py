@@ -319,8 +319,7 @@ class MainWindow(QMainWindow):
         self.simulation_worker = SimulationWorker(self.gcode_file, params)
         self.simulation_worker.progress.connect(self._on_simulation_progress)
         self.simulation_worker.progress_percent.connect(self._on_simulation_progress_percent)
-        self.simulation_worker.finished.connect(self._on_simulation_finished)
-        self.simulation_worker.error.connect(self._on_simulation_error)
+        self.simulation_worker.finished.connect(self._on_simulation_worker_finished)
         self.simulation_worker.start()
         
     def _on_simulation_progress_percent(self, percent: int):
@@ -348,6 +347,20 @@ class MainWindow(QMainWindow):
         from PyQt6.QtCore import QCoreApplication
         QCoreApplication.processEvents()
         
+    def _on_simulation_worker_finished(self):
+        """Handle a worker only after its QThread has fully returned."""
+        worker = self.simulation_worker
+        if not worker:
+            return
+
+        worker.wait()
+        if worker.outcome == "success":
+            self._on_simulation_finished(str(worker.output_stl))
+        elif worker.outcome == "canceled":
+            self._on_simulation_canceled()
+        else:
+            self._on_simulation_error(worker.error_message or "Simulation failed without an error message.")
+
     def _on_simulation_finished(self, stl_path: str):
         """Handle successful simulation completion."""
         if self.progress_dialog:
@@ -379,21 +392,33 @@ class MainWindow(QMainWindow):
         self.parameters.setEnabled(True)
         
     def _cancel_simulation(self):
-        """Cancel the running simulation."""
-        if self.simulation_worker:
-            # Signal the heartbeat thread to stop
-            self.simulation_worker.is_running = False
-            
-            if self.simulation_worker.isRunning():
-                self.simulation_worker.terminate()
-                self.simulation_worker.wait()
-        
-        # Clear the dialog reference so we don't try to update it
-        self.progress_dialog = None
-            
+        """Request cancellation of the engine process."""
+        worker = self.simulation_worker
+        if worker and worker.isRunning():
+            if self.progress_dialog:
+                self.progress_dialog.setLabelText("Canceling simulation...")
+                self.progress_dialog.setCancelButton(None)
+            self.status_bar.showMessage("Canceling simulation...")
+            worker.cancel()
+
+    def _on_simulation_canceled(self):
+        """Restore the interface after the child process has stopped."""
+        if self.progress_dialog:
+            self.progress_dialog.close()
+            self.progress_dialog = None
+
         self.status_bar.showMessage("Simulation canceled")
-        
-        # Re-enable controls
-        self.run_button.setEnabled(True)
-        self.file_import.setEnabled(True)
-        self.parameters.setEnabled(True)
+        self._set_simulation_controls_enabled(True)
+
+    def _set_simulation_controls_enabled(self, enabled: bool):
+        self.run_button.setEnabled(enabled)
+        self.file_import.setEnabled(enabled)
+        self.parameters.setEnabled(enabled)
+
+    def closeEvent(self, event):
+        """Stop the isolated engine process before destroying the window."""
+        worker = self.simulation_worker
+        if worker and worker.isRunning():
+            worker.cancel()
+            worker.wait()
+        event.accept()

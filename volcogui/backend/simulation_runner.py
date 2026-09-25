@@ -1,425 +1,225 @@
-"""Simulation runner for Volco."""
+"""Run Volco simulations in a separate process so they can be canceled safely."""
 
-import sys
-import io
-import re
+from __future__ import annotations
+
+import json
+import os
 import shutil
+import subprocess
+import sys
 import tempfile
 import threading
+import time
+from collections import deque
 from pathlib import Path
-from typing import Optional
+
 from PyQt6.QtCore import QThread, pyqtSignal
 
 
-class ProgressCapture(io.StringIO):
-    """Custom StringIO that captures output and triggers callbacks."""
-    
-    def __init__(self, callback, original_stream=None):
-        super().__init__()
-        self.callback = callback
-        self.buffer = ""
-        self.original_stream = original_stream
-        
-    def write(self, text):
-        super().write(text)
-        self.buffer += text
-        
-        # Also write to original stream so we can see console output
-        if self.original_stream:
-            try:
-                self.original_stream.write(text)
-                self.original_stream.flush()
-            except:
-                pass
-        
-        # Trigger callback with new text
-        if self.callback and text.strip():  # Only callback if there's actual content
-            try:
-                self.callback(text)
-            except Exception as e:
-                # Write errors to original stream if available
-                if self.original_stream:
-                    self.original_stream.write(f"[Callback Error: {e}]\n")
-        return len(text)
-    
-    def flush(self):
-        """Flush is called by logging handlers."""
-        if self.original_stream:
-            try:
-                self.original_stream.flush()
-            except:
-                pass
+SIMULATION_NAME = "volcogui_simulation"
+MAX_DIAGNOSTIC_LINES = 100
+MAX_DIAGNOSTIC_LINE_LENGTH = 2000
+
+
+def build_simulation_config(gcode_path: str, params: dict, run_dir: Path) -> dict:
+    """Build the Volco inputs for one isolated run directory."""
+    results_dir = run_dir / "results"
+    nozzle_diameter = params["nozzle_diameter"]
+
+    printer_config = {
+        "nozzle_diameter": nozzle_diameter,
+        "feedstock_filament_diameter": params.get("feedstock_filament_diameter", 1.75),
+        "nozzle_jerk_speed": params.get("nozzle_jerk_speed", 10.0),
+        "extruder_jerk_speed": params.get("extruder_jerk_speed", 5.0),
+        "nozzle_acceleration": params.get("nozzle_acceleration", 1000.0),
+        "extruder_acceleration": params.get("extruder_acceleration", 5000.0),
+    }
+
+    simulation_config = {
+        "simulation_name": SIMULATION_NAME,
+        "results_folder": str(results_dir),
+        "voxel_size": params["voxel_size"],
+        "step_size": params["step_size"],
+        "x_offset": 5 * nozzle_diameter,
+        "y_offset": 5 * nozzle_diameter,
+        "z_offset": 5 * nozzle_diameter,
+        "sphere_z_offset": 0.5 * nozzle_diameter,
+        "x_crop": ["all", "all"],
+        "y_crop": ["all", "all"],
+        "z_crop": ["all", "all"],
+        "radius_increment": params.get("radius_increment", 0.001),
+        "solver_tolerance": params.get("solver_tolerance", 0.0001),
+        "consider_acceleration": params.get("consider_acceleration", False),
+        "stl_ascii": params.get("stl_ascii", False),
+        "preview_mode": params.get("preview_mode", False),
+    }
+
+    return {
+        "gcode_path": str(Path(gcode_path).resolve()),
+        "printer_config": printer_config,
+        "sim_config": simulation_config,
+    }
 
 
 class SimulationWorker(QThread):
-    """Worker thread for running Volco simulations."""
-    
-    # Signals
-    progress = pyqtSignal(str)  # Progress message
-    progress_percent = pyqtSignal(int) # Progress percentage
-    finished = pyqtSignal(str)  # Output STL file path
-    error = pyqtSignal(str)     # Error message
-    
+    """Own and monitor an isolated Volco process."""
+
+    progress = pyqtSignal(str)
+    progress_percent = pyqtSignal(int)
+
     def __init__(self, gcode_path: str, params: dict):
         super().__init__()
         self.gcode_path = gcode_path
         self.params = params
-        self.output_stl = None
-        self.total_filaments = 0
-        self.processed_filaments = 0
-        self.last_progress_update = 0
-        self.is_running = False
-        self.simulation_start_time = 0
-    
-    def _handle_progress_output(self, text: str):
-        """Handle progress updates from Volco stdout."""
-        import re
-        import time
-        
-        # New format: INFO ... Deposited step 1/42 (~layer: 0): from ... to ...
-        new_matches = re.findall(r'Deposited step\s+(\d+)/(\d+)\s+\(~layer:\s*(\d+)\).*?to\s+\(([^)]+)\)', text)
-        if new_matches:
-            # Use the last match to update state to the latest progress
-            last_match = new_matches[-1]
-            step = int(last_match[0])
-            max_step = int(last_match[1])
-            layer = int(last_match[2])
-            coords_str = last_match[3]
-            
-            # Parse coordinates "x, y, z"
-            try:
-                xyz = [float(c.strip()) for c in coords_str.split(',')]
-            except ValueError:
-                xyz = [0.0, 0.0, 0.0]
+        self.run_dir = Path(tempfile.mkdtemp(prefix="volcogui-run-"))
+        self.output_stl = self.run_dir / "results" / f"{SIMULATION_NAME}.stl"
+        self.outcome = "running"
+        self.error_message: str | None = None
+        self._cancel_requested = threading.Event()
+        self._process_lock = threading.Lock()
+        self._process: subprocess.Popen | None = None
+        self._recent_output: deque[str] = deque(maxlen=MAX_DIAGNOSTIC_LINES)
+        self._start_time = 0.0
+        self._last_progress_update = 0.0
+        self._total_steps = 0
 
-            # Update state
-            self.processed_filaments = step
-            self.total_filaments = max_step
-            
-            if self.simulation_start_time == 0:
-                self.simulation_start_time = time.time()
-            
-            percentage = int((self.processed_filaments / self.total_filaments) * 100) if self.total_filaments > 0 else 0
-            
-            # Emit if enough time has passed (100ms) or if it's the last step
-            current_time = time.time()
-            if (current_time - self.last_progress_update > 0.1) or (self.processed_filaments == self.total_filaments):
-                elapsed = int(current_time - self.simulation_start_time)
-                self.progress.emit(f"Voxelizing step {self.processed_filaments}/{self.total_filaments} - {elapsed}s elapsed")
-                self.progress_percent.emit(percentage)
-                self.last_progress_update = current_time
+    def cancel(self) -> None:
+        """Request cancellation and stop the child process without killing this thread."""
+        self._cancel_requested.set()
+        with self._process_lock:
+            process = self._process
+
+        if process is None or process.poll() is not None:
             return
-        
-        # Look for total filaments count
-        filament_match = re.search(r'Number of printed filaments:\s*(\d+)', text)
-        if filament_match:
-            self.total_filaments = int(filament_match.group(1))
-            self.processed_filaments = 0  # Reset counter
-            self.progress.emit(f"Found {self.total_filaments} filaments to process")
-            self.simulation_start_time = time.time()
-        
-        # Count "Depositing filament: step = 1/X" which indicates a NEW filament starting
-        if self.total_filaments > 0:
-            # Match "step = 1" which means starting a new filament
-            step_one_match = re.search(r'Depositing filament:\s*step\s*=\s*1/', text)
-            if step_one_match:
-                self.processed_filaments += 1
-                percentage = int((self.processed_filaments / self.total_filaments) * 100)
-                # Emit every 5% to avoid UI spam
-                if percentage % 5 == 0 or self.processed_filaments == self.total_filaments:
-                    elapsed = int(time.time() - self.simulation_start_time) if hasattr(self, 'simulation_start_time') else 0
-                    self.progress.emit(f"Voxelizing filament {self.processed_filaments}/{self.total_filaments} - {elapsed}s elapsed")
-                    self.progress_percent.emit(percentage)
-        
-    def run(self):
-        """Run the simulation in a background thread."""
+
         try:
-            self.progress.emit("Initializing simulation...")
-            
-            # Import Volco (add parent directory to path if needed)
-            try:
-                # Try to find Volco in multiple locations
-                volco_paths = [
-                    # For PyInstaller bundled version
-                    Path(sys._MEIPASS) / "volco" if hasattr(sys, '_MEIPASS') else None,
-                    # Development: submodule in volcogui/volco
-                    Path(__file__).parent.parent.parent / "volco",
-                ]
-                
-                # Filter out None paths
-                volco_paths = [p for p in volco_paths if p is not None]
-                
-                volco_found = False
-                for volco_path in volco_paths:
-                    if volco_path.exists() and (volco_path / "volco.py").exists():
-                        sys.path.insert(0, str(volco_path))
-                        volco_found = True
-                        break
-                
-                if not volco_found:
-                    # Fall back to test mode
-                    self.progress.emit("Volco not found - running in TEST MODE...")
-                    import time
-                    time.sleep(2)
-                    temp_dir = tempfile.gettempdir()
-                    self.output_stl = str(Path(temp_dir) / "volco_output.stl")
-                    self._create_test_stl(self.output_stl)
-                    self.progress.emit("Test simulation complete!")
-                    self.finished.emit(self.output_stl)
-                    return
-                
-                # Import volco first to let it configure logging normally
-                import logging
-                from volco import run_simulation
-                
-                # NOW reconfigure logging to capture output AFTER volco has imported everything
-                # Capture both stdout and stderr with progress tracking
-                old_stdout = sys.stdout
-                old_stderr = sys.stderr
-                captured_output = ProgressCapture(self._handle_progress_output, old_stderr)
-                sys.stdout = captured_output
-                sys.stderr = captured_output
-                
-                # Reconfigure ALL existing loggers to use our handler
-                root_logger = logging.getLogger()
-                
-                # Remove all existing handlers
-                for handler in root_logger.handlers[:]:
-                    root_logger.removeHandler(handler)
-                
-                # Add our custom handler that writes to captured_output
-                new_handler = logging.StreamHandler(captured_output)
-                new_handler.setFormatter(logging.Formatter("%(levelname)s %(asctime)s %(message)s"))
-                new_handler.setLevel(logging.INFO)
-                root_logger.addHandler(new_handler)
-                root_logger.setLevel(logging.INFO)
-                
-                # CRITICAL: Force all child loggers to use parent handlers
-                # This ensures volco's module loggers (like voxel_space) use our handler
-                for logger_name in logging.root.manager.loggerDict:
-                    logger_obj = logging.getLogger(logger_name)
-                    logger_obj.handlers = []
-                    logger_obj.propagate = True  # Ensure it uses root logger's handlers
-                
-                self.progress.emit("Parsing G-code...")
-                
-                # Create a temporary output file
-                temp_dir = tempfile.gettempdir()
-                self.output_stl = str(Path(temp_dir) / "volco_output.stl")
-                
-                # Create temp directory for results
-                results_folder = str(Path(temp_dir) / "volcogui_results")
-                
-                try:
-                    import time
-                    self.progress.emit("Running voxel simulation...")
-                    self.is_running = True
-                    self.simulation_start_time = time.time()
-                    
-                    # Start a thread to emit heartbeat updates every 2 seconds
-                    import threading
-                    def heartbeat():
-                        while self.is_running:
-                            time.sleep(2)
-                            if self.is_running:
-                                elapsed = int(time.time() - self.simulation_start_time)
-                                if self.total_filaments > 0:
-                                    percentage = int((self.processed_filaments / self.total_filaments) * 100)
-                                    self.progress.emit(f"Voxelizing step {self.processed_filaments}/{self.total_filaments} - {elapsed}s elapsed")
-                                    self.progress_percent.emit(percentage)
-                                else:
-                                    self.progress.emit(f"Voxelizing... {elapsed}s elapsed")
-                    
-                    heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
-                    heartbeat_thread.start()
-                    
-                    # Run Volco simulation
-                    printer_config = {
-                      'nozzle_diameter': self.params['nozzle_diameter'],
-                      'feedstock_filament_diameter': self.params.get('feedstock_filament_diameter', 1.75),
-                      'nozzle_jerk_speed': self.params.get('nozzle_jerk_speed', 10.0),
-                      'extruder_jerk_speed': self.params.get('extruder_jerk_speed', 5.0),
-                      'nozzle_acceleration': self.params.get('nozzle_acceleration', 1000.0),
-                      'extruder_acceleration': self.params.get('extruder_acceleration', 5000.0),
-                    }
+            process.terminate()
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        except OSError:
+            # The process may have exited between poll() and terminate().
+            pass
 
-                    sim_config = {
-                      'simulation_name': 'volcogui_simulation',
-                      'results_folder': results_folder,
-                      'voxel_size': self.params['voxel_size'],
-                      'step_size': self.params['step_size'],
-                      'x_offset': 5 * self.params['nozzle_diameter'],
-                      'y_offset': 5 * self.params['nozzle_diameter'],
-                      'z_offset': 5 * self.params['nozzle_diameter'],
-                      'sphere_z_offset': 0.5 * self.params['nozzle_diameter'],
-                      'x_crop': ['all', 'all'],
-                      'y_crop': ['all', 'all'],
-                      'z_crop': ['all', 'all'],
-                      'radius_increment': self.params.get('radius_increment', 0.001),
-                      'solver_tolerance': self.params.get('solver_tolerance', 0.0001),
-                      'consider_acceleration': self.params.get('consider_acceleration', False),
-                      'stl_ascii': self.params.get('stl_ascii', False),
-                      'preview_mode': self.params.get('preview_mode', False),
-                    }
+    def _command(self, config_path: Path) -> list[str]:
+        if getattr(sys, "frozen", False):
+            return [sys.executable, "--volcogui-simulation-worker", str(config_path)]
 
-                    output = run_simulation(
-                      gcode_path=self.gcode_path,
-                      printer_config=printer_config,
-                      sim_config=sim_config
-                    )
-                
-                    self.is_running = False
-                    self.progress.emit("Generating mesh...")
-                    
-                    # Export STL (Volco creates the file in results_folder/simulation_name.stl)
-                    output.export_mesh_to_stl()
-                    
-                finally:
-                    self.is_running = False
-                    # Restore stdout and stderr
-                    sys.stdout = old_stdout
-                    sys.stderr = old_stderr
-                    output_text = captured_output.getvalue()
-                    
-                    # Extract progress info for debugging
-                    if "Number of printed filaments:" in output_text:
-                        match = re.search(r'Number of printed filaments: (\d+)', output_text)
-                        if match:
-                            total_filaments = match.group(1)
-                            self.progress.emit(f"Processed {total_filaments} filaments")
-                
-                # Get the actual STL path that Volco created
-                actual_stl_path = Path(results_folder) / "volcogui_simulation.stl"
-                
-                # Copy to our output location for consistency
-                if actual_stl_path.exists():
-                    shutil.copy(str(actual_stl_path), self.output_stl)
-                else:
-                    raise FileNotFoundError(f"STL file not found at {actual_stl_path}")
-                
-                self.progress.emit("Simulation complete!")
-                self.finished.emit(self.output_stl)
-                
-            except ImportError as e:
-                self.error.emit(f"Volco import failed: {str(e)}\n\nMake sure Volco is in the correct location.")
+        worker_script = Path(__file__).with_name("simulation_process.py")
+        return [sys.executable, "-u", str(worker_script), str(config_path)]
+
+    def _working_directory(self) -> Path:
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+            return Path(sys._MEIPASS)
+        return Path(__file__).resolve().parents[2]
+
+    def _handle_output(self, line: str) -> None:
+        """Extract the progress messages Volco currently writes to its log."""
+        import re
+
+        filament_match = re.search(r"Number of printed filaments:\s*(\d+)", line)
+        if filament_match:
+            self._total_steps = int(filament_match.group(1))
+            self._start_time = time.monotonic()
+            self.progress.emit(f"Found {self._total_steps} filaments to process")
+            return
+
+        step_matches = re.findall(r"Deposited step\s+(\d+)/(\d+)", line)
+        if step_matches:
+            step, total = map(int, step_matches[-1])
+            self._total_steps = total
+            now = time.monotonic()
+            if now - self._last_progress_update >= 0.1 or step == total:
+                elapsed = int(now - self._start_time) if self._start_time else 0
+                self.progress.emit(f"Voxelizing step {step}/{total} - {elapsed}s elapsed")
+                # Reserve 100% for the successfully completed/exported output.
+                self.progress_percent.emit(min(99, int(step * 100 / total)) if total else 0)
+                self._last_progress_update = now
+            return
+
+        step_one = re.search(r"Depositing filament:\s*step\s*=\s*1/", line)
+        if step_one and self._total_steps:
+            elapsed = int(time.monotonic() - self._start_time) if self._start_time else 0
+            self.progress.emit(f"Voxelizing - {elapsed}s elapsed")
+
+    def _error_message(self, return_code: int) -> str:
+        details = "\n".join(self._recent_output)
+        message = f"Volco exited with code {return_code}."
+        if details:
+            message += f"\n\nRecent Volco output:\n{details}"
+        return message
+
+    def _remove_failed_run(self) -> None:
+        shutil.rmtree(self.run_dir, ignore_errors=True)
+
+    def run(self) -> None:
+        """Run the engine and report success only when its STL is present."""
+        config_path = self.run_dir / "run.json"
+        process = None
+        succeeded = False
+
+        try:
+            if self._cancel_requested.is_set():
+                self.outcome = "canceled"
                 return
-                
-        except ZeroDivisionError as e:
-            self.error.emit(
-                f"Division by zero error in simulation.\n\n"
-                f"This usually happens when:\n"
-                f"• Step size is larger than filament segments\n"
-                f"• G-code contains very short movements\n\n"
-                f"Try:\n"
-                f"• Reducing step_size (current: {self.params['step_size']}mm)\n"
-                f"• Increasing voxel_size\n\n"
-                f"Technical details: {str(e)}"
-            )
-        except Exception as e:
-            error_msg = str(e)
-            # Make division by zero errors more user-friendly
-            if "division by zero" in error_msg.lower() or "divide by zero" in error_msg.lower():
-                self.error.emit(
-                    f"Division by zero error in simulation.\n\n"
-                    f"Current parameters:\n"
-                    f"• Step size: {self.params['step_size']}mm\n"
-                    f"• Voxel size: {self.params['voxel_size']}mm\n"
-                    f"• Nozzle diameter: {self.params['nozzle_diameter']}mm\n\n"
-                    f"Try reducing the step_size or check your G-code for very short movements.\n\n"
-                    f"Error: {error_msg}"
+
+            config = build_simulation_config(self.gcode_path, self.params, self.run_dir)
+            config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+            self.progress.emit("Starting Volco simulation...")
+            self._start_time = time.monotonic()
+
+            with self._process_lock:
+                if self._cancel_requested.is_set():
+                    self.outcome = "canceled"
+                    return
+                process = subprocess.Popen(
+                    self._command(config_path),
+                    cwd=self._working_directory(),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    bufsize=1,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
+                self._process = process
+
+            assert process.stdout is not None
+            for output_line in process.stdout:
+                line = output_line.rstrip()
+                self._recent_output.append(line[:MAX_DIAGNOSTIC_LINE_LENGTH])
+                self._handle_output(line)
+
+            return_code = process.wait()
+            if self._cancel_requested.is_set():
+                self.outcome = "canceled"
+                return
+            if return_code != 0:
+                raise RuntimeError(self._error_message(return_code))
+            if not self.output_stl.is_file() or self.output_stl.stat().st_size == 0:
+                raise FileNotFoundError(
+                    f"Volco exited successfully but did not create an STL at {self.output_stl}"
+                )
+
+            succeeded = True
+            self.outcome = "success"
+            self.progress.emit("Simulation complete!")
+            self.progress_percent.emit(100)
+        except Exception as exc:
+            if self._cancel_requested.is_set():
+                self.outcome = "canceled"
             else:
-                self.error.emit(f"Simulation failed: {error_msg}")
-            
-    def _create_test_stl(self, output_path: str):
-        """Create a simple test STL file for testing purposes."""
-        # Simple ASCII STL of a cube
-        stl_content = """solid cube
-  facet normal 0 0 1
-    outer loop
-      vertex 0 0 10
-      vertex 10 0 10
-      vertex 10 10 10
-    endloop
-  endfacet
-  facet normal 0 0 1
-    outer loop
-      vertex 0 0 10
-      vertex 10 10 10
-      vertex 0 10 10
-    endloop
-  endfacet
-  facet normal 0 0 -1
-    outer loop
-      vertex 0 0 0
-      vertex 10 10 0
-      vertex 10 0 0
-    endloop
-  endfacet
-  facet normal 0 0 -1
-    outer loop
-      vertex 0 0 0
-      vertex 0 10 0
-      vertex 10 10 0
-    endloop
-  endfacet
-  facet normal 1 0 0
-    outer loop
-      vertex 10 0 0
-      vertex 10 10 10
-      vertex 10 0 10
-    endloop
-  endfacet
-  facet normal 1 0 0
-    outer loop
-      vertex 10 0 0
-      vertex 10 10 0
-      vertex 10 10 10
-    endloop
-  endfacet
-  facet normal -1 0 0
-    outer loop
-      vertex 0 0 0
-      vertex 0 0 10
-      vertex 0 10 10
-    endloop
-  endfacet
-  facet normal -1 0 0
-    outer loop
-      vertex 0 0 0
-      vertex 0 10 10
-      vertex 0 10 0
-    endloop
-  endfacet
-  facet normal 0 1 0
-    outer loop
-      vertex 0 10 0
-      vertex 0 10 10
-      vertex 10 10 10
-    endloop
-  endfacet
-  facet normal 0 1 0
-    outer loop
-      vertex 0 10 0
-      vertex 10 10 10
-      vertex 10 10 0
-    endloop
-  endfacet
-  facet normal 0 -1 0
-    outer loop
-      vertex 0 0 0
-      vertex 10 0 10
-      vertex 0 0 10
-    endloop
-  endfacet
-  facet normal 0 -1 0
-    outer loop
-      vertex 0 0 0
-      vertex 10 0 0
-      vertex 10 0 10
-    endloop
-  endfacet
-endsolid cube
-"""
-        with open(output_path, 'w') as f:
-            f.write(stl_content)
+                self.outcome = "error"
+                self.error_message = str(exc)
+        finally:
+            if process is not None:
+                if process.poll() is None:
+                    self.cancel()
+                if process.stdout is not None:
+                    process.stdout.close()
+                with self._process_lock:
+                    self._process = None
+            if not succeeded:
+                self._remove_failed_run()
