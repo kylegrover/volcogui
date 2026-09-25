@@ -15,7 +15,7 @@ Steps 1–2 landed on `main` in `61452ed` and `3553f16`: Volco now runs in a sub
 
 ## Lifecycle check status
 
-Automated offscreen Qt checks (viewer stub, deliberately slow subprocess) exercised both cancel and close during a run. In each case the worker stopped, reported `canceled`, and removed its run directory; after cancel the controls were re-enabled. Window close took ~0.003s in this simple case. These checks do **not** establish responsiveness with the real VTK viewer or a busy Volco process.
+Automated offscreen Qt checks (viewer stub) exercised a real bundled-Volco preview run using `examples/test_cube.gcode`, a simulated viewer failure after successful output, an engine exit with no output, a Cancel-button click during a slow child process, and closing during a slow child process. Success produced a nonempty STL, populated Run Log, loaded the stub viewer, and restored controls. Viewer failure preserved the STL and raised a separate warning. Empty-output failure raised an error but left Run Log disabled (known issue). Cancel and close stopped the worker and removed their run directories; cancel restored controls. No live child was left in these cases. A direct worker preview smoke test also succeeded. Earlier simple close check took ~0.003s. These checks do **not** establish responsiveness with the real VTK viewer or a busy Volco process. Packaged execution was not retested in this pass.
 
 ## Next checkpoints
 
