@@ -366,7 +366,9 @@ class MainWindow(QMainWindow):
         self.last_run_summary = f"Result: {worker.outcome}\nG-code: {worker.gcode_path}"
         if worker.outcome == "success":
             self.last_run_summary += f"\nSTL: {worker.output_stl}"
-        self.run_log_button.setEnabled(bool(self.last_run_diagnostics))
+        elif worker.outcome == "error":
+            self.last_run_summary += f"\nError: {(worker.error_message or 'Unknown error')[:500]}"
+        self.run_log_button.setEnabled(True)
 
         if worker.outcome == "success":
             self._on_simulation_finished(str(worker.output_stl))
@@ -433,7 +435,7 @@ class MainWindow(QMainWindow):
 
     def _show_run_diagnostics(self):
         """Display the bounded output retained from the most recent run."""
-        if not self.last_run_diagnostics:
+        if not self.last_run_summary:
             return
 
         dialog = QDialog(self)
@@ -446,7 +448,7 @@ class MainWindow(QMainWindow):
         output = QPlainTextEdit()
         output.setReadOnly(True)
         output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        output.setPlainText(self.last_run_diagnostics)
+        output.setPlainText(self.last_run_diagnostics or "No engine output was captured.")
         layout.addWidget(output)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)

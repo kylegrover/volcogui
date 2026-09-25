@@ -1,5 +1,7 @@
+import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -161,3 +163,43 @@ def test_cancel_terminates_child_and_removes_partial_files(tmp_path):
     assert worker.outcome == "canceled"
     assert not worker.isRunning()
     assert not run_dir.exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows process-tree cancellation")
+def test_cancel_stops_python_launcher_and_its_child(tmp_path):
+    gcode_path = tmp_path / "part.gcode"
+    gcode_path.write_text("G28\n", encoding="utf-8")
+    script = (
+        "import subprocess,sys,time; "
+        "child=subprocess.Popen([sys._base_executable,'-c','import time; time.sleep(60)']); "
+        "print('CHILD_PID:',child.pid,flush=True); time.sleep(60)"
+    )
+    worker = CommandWorker([sys.executable, "-u", "-c", script], gcode_path)
+    worker.start()
+    child_pid = None
+    try:
+        for _ in range(100):
+            if "CHILD_PID:" in worker.diagnostics_text:
+                child_pid = int(worker.diagnostics_text.split("CHILD_PID: ")[-1].splitlines()[0])
+                break
+            time.sleep(0.05)
+        assert child_pid is not None
+        worker.cancel()
+        assert worker.wait(5_000)
+        alive = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command",
+             f"if (Get-Process -Id {child_pid} -ErrorAction SilentlyContinue) {{ exit 1 }}"],
+            capture_output=True,
+        ).returncode != 0
+        assert not alive
+        assert worker.outcome == "canceled"
+        assert not worker.run_dir.exists()
+    finally:
+        if child_pid is not None:
+            subprocess.run(
+                ["powershell.exe", "-NoProfile", "-Command",
+                 f"Stop-Process -Id {child_pid} -Force -ErrorAction SilentlyContinue"],
+                capture_output=True,
+            )
+        worker.cancel()
+        worker.wait(10_000)

@@ -115,6 +115,23 @@ class SimulationWorker(QThread):
         if process is None or process.poll() is not None:
             return
 
+        if sys.platform == "win32":
+            # A Windows venv python.exe may launch another Python process. Killing
+            # only the launcher leaves the engine running with our stdout pipe open.
+            try:
+                result = subprocess.run(
+                    ["taskkill.exe", "/PID", str(process.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                if result.returncode == 0:
+                    process.wait(timeout=2)
+                    return
+            except (OSError, subprocess.TimeoutExpired):
+                pass  # Fall back to stopping the direct process below.
+
         try:
             process.terminate()
             process.wait(timeout=2)
