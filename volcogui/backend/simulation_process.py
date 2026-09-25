@@ -28,6 +28,10 @@ def _ensure_output_streams() -> None:
             setattr(sys, name, stream)
 
 
+def _report_stage(stage: str) -> None:
+    print(f"VOLCOGUI_STAGE:{stage}", flush=True)
+
+
 def run_simulation(config_path: Path) -> None:
     """Load the run request, import the bundled engine, and export its STL."""
     _ensure_output_streams()
@@ -48,13 +52,16 @@ def run_simulation(config_path: Path) -> None:
     sys.path.insert(0, str(volco_path))
     from volco import run_simulation as run_volco_simulation
 
+    _report_stage("simulation")
     output = run_volco_simulation(
         gcode_path=config["gcode_path"],
         printer_config=config["printer_config"],
         sim_config=config["sim_config"],
     )
+    _report_stage("stl_export")
     output.export_mesh_to_stl()
 
+    _report_stage("output_validation")
     output_path = (
         Path(config["sim_config"]["results_folder"])
         / f'{config["sim_config"]["simulation_name"]}.stl'

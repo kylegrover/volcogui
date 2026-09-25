@@ -1,18 +1,17 @@
 """Main window for VolcoGUI application."""
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QGroupBox, QMessageBox,
     QSplitter, QStatusBar, QProgressDialog, QScrollArea,
-    QSizePolicy
+    QSizePolicy, QDialog, QDialogButtonBox, QPlainTextEdit,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent
+from PyQt6.QtCore import Qt
 
 from volcogui.ui.file_import_widget import FileImportWidget
 from volcogui.ui.parameter_widget import ParameterWidget
 from volcogui.ui.viewer_widget import ViewerWidget
-from volcogui.backend.simulation_runner import SimulationWorker
+from volcogui.backend.simulation_runner import SimulationWorker, validate_gcode_path
 
 
 class MainWindow(QMainWindow):
@@ -24,6 +23,8 @@ class MainWindow(QMainWindow):
         self.output_stl = None
         self.simulation_worker = None
         self.progress_dialog = None
+        self.last_run_diagnostics = ""
+        self.last_run_summary = ""
         
         self.setWindowTitle("VolcoGUI - 3D Print Simulator")
         self.setMinimumSize(1200, 800)
@@ -181,6 +182,11 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready - Import a G-code file to begin")
+        self.run_log_button = QPushButton("Run Log")
+        self.run_log_button.setToolTip("View the bounded output from the most recent run")
+        self.run_log_button.setEnabled(False)
+        self.run_log_button.clicked.connect(self._show_run_diagnostics)
+        self.status_bar.addPermanentWidget(self.run_log_button)
         
     def _create_left_panel(self) -> QWidget:
         """Create the left control panel."""
@@ -253,20 +259,32 @@ class MainWindow(QMainWindow):
     def _connect_signals(self):
         """Connect widget signals to slots."""
         self.file_import.file_selected.connect(self._on_file_selected)
+        self.file_import.file_error.connect(self._on_file_error)
         self.run_button.clicked.connect(self._on_run_simulation)
         
     def _on_file_selected(self, filepath: str):
-        """Handle file selection."""
+        """Handle a validated G-code selection."""
         self.gcode_file = filepath
         self.run_button.setEnabled(True)
         self.status_bar.showMessage(f"Loaded: {filepath}")
+
+    def _on_file_error(self, message: str):
+        """Report a rejected G-code selection without discarding a valid one."""
+        self.status_bar.showMessage(f"Invalid G-code file: {message}", 8000)
         
     def _on_run_simulation(self):
         """Handle run simulation button click."""
         if not self.gcode_file:
             QMessageBox.warning(self, "No File", "Please select a G-code file first.")
             return
-        
+
+        try:
+            gcode_path = validate_gcode_path(self.gcode_file)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Invalid G-code File", str(exc))
+            self.status_bar.showMessage(f"Invalid G-code file: {exc}", 8000)
+            return
+
         # Get parameters
         params = self.parameters.get_parameters()
         
@@ -275,6 +293,10 @@ class MainWindow(QMainWindow):
         self.file_import.setEnabled(False)
         self.parameters.setEnabled(False)
         
+        self.last_run_diagnostics = ""
+        self.last_run_summary = ""
+        self.run_log_button.setEnabled(False)
+
         # Create progress dialog
         self.progress_dialog = QProgressDialog("Initializing...", "Cancel", 0, 100, self)
         self.progress_dialog.setWindowTitle("Running Simulation")
@@ -316,7 +338,7 @@ class MainWindow(QMainWindow):
         self.progress_dialog.show()
         
         # Create and start worker thread
-        self.simulation_worker = SimulationWorker(self.gcode_file, params)
+        self.simulation_worker = SimulationWorker(str(gcode_path), params)
         self.simulation_worker.progress.connect(self._on_simulation_progress)
         self.simulation_worker.progress_percent.connect(self._on_simulation_progress_percent)
         self.simulation_worker.finished.connect(self._on_simulation_worker_finished)
@@ -328,24 +350,10 @@ class MainWindow(QMainWindow):
             self.progress_dialog.setValue(percent)
 
     def _on_simulation_progress(self, message: str):
-        """Handle progress updates from simulation."""
-        # DEBUG: Write to file to verify this method is being called
-        import tempfile
-        try:
-            with open(tempfile.gettempdir() + "/volcogui_ui_debug.log", "a") as f:
-                f.write(f"UI received: {message}\n")
-                f.flush()
-        except:
-            pass
-        
+        """Show worker progress without re-entering the Qt event loop."""
         if self.progress_dialog:
             self.progress_dialog.setLabelText(message)
-            # Force immediate update
-            self.progress_dialog.repaint()
         self.status_bar.showMessage(message)
-        # Process events to ensure UI updates
-        from PyQt6.QtCore import QCoreApplication
-        QCoreApplication.processEvents()
         
     def _on_simulation_worker_finished(self):
         """Handle a worker only after its QThread has fully returned."""
@@ -354,6 +362,12 @@ class MainWindow(QMainWindow):
             return
 
         worker.wait()
+        self.last_run_diagnostics = worker.diagnostics_text
+        self.last_run_summary = f"Result: {worker.outcome}\nG-code: {worker.gcode_path}"
+        if worker.outcome == "success":
+            self.last_run_summary += f"\nSTL: {worker.output_stl}"
+        self.run_log_button.setEnabled(bool(self.last_run_diagnostics))
+
         if worker.outcome == "success":
             self._on_simulation_finished(str(worker.output_stl))
         elif worker.outcome == "canceled":
@@ -362,20 +376,30 @@ class MainWindow(QMainWindow):
             self._on_simulation_error(worker.error_message or "Simulation failed without an error message.")
 
     def _on_simulation_finished(self, stl_path: str):
-        """Handle successful simulation completion."""
+        """Handle engine success and report viewer failures separately."""
         if self.progress_dialog:
             self.progress_dialog.close()
             self.progress_dialog = None
-            
+
         self.output_stl = stl_path
-        self.viewer_widget.load_stl(stl_path)
-        
-        self.status_bar.showMessage(f"Simulation complete! Output: {stl_path}")
-        
-        # Re-enable controls
-        self.run_button.setEnabled(True)
-        self.file_import.setEnabled(True)
-        self.parameters.setEnabled(True)
+        viewer_error = None
+        try:
+            self.viewer_widget.load_stl(stl_path)
+        except Exception as exc:
+            viewer_error = str(exc)
+
+        self._set_simulation_controls_enabled(True)
+        if viewer_error:
+            self.status_bar.showMessage(f"Simulation complete; could not display STL: {viewer_error}")
+            QMessageBox.warning(
+                self,
+                "Simulation Complete — Viewer Error",
+                f"The STL was created successfully at:\n{stl_path}\n\n"
+                f"The 3D viewer could not display it:\n{viewer_error}\n\n"
+                "The output file is still available at that path.",
+            )
+        else:
+            self.status_bar.showMessage(f"Simulation complete! Output: {stl_path}")
         
     def _on_simulation_error(self, error_message: str):
         """Handle simulation error."""
@@ -386,11 +410,8 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Simulation Error", error_message)
         self.status_bar.showMessage("Simulation failed")
         
-        # Re-enable controls
-        self.run_button.setEnabled(True)
-        self.file_import.setEnabled(True)
-        self.parameters.setEnabled(True)
-        
+        self._set_simulation_controls_enabled(True)
+
     def _cancel_simulation(self):
         """Request cancellation of the engine process."""
         worker = self.simulation_worker
@@ -409,6 +430,30 @@ class MainWindow(QMainWindow):
 
         self.status_bar.showMessage("Simulation canceled")
         self._set_simulation_controls_enabled(True)
+
+    def _show_run_diagnostics(self):
+        """Display the bounded output retained from the most recent run."""
+        if not self.last_run_diagnostics:
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Volco Run Log")
+        layout = QVBoxLayout(dialog)
+        summary = QLabel(self.last_run_summary)
+        summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(summary)
+
+        output = QPlainTextEdit()
+        output.setReadOnly(True)
+        output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        output.setPlainText(self.last_run_diagnostics)
+        layout.addWidget(output)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.resize(800, 500)
+        dialog.exec()
 
     def _set_simulation_controls_enabled(self, enabled: bool):
         self.run_button.setEnabled(enabled)

@@ -12,7 +12,8 @@ from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 class FileImportWidget(QGroupBox):
     """Widget for importing G-code files via drag-drop or file dialog."""
     
-    file_selected = pyqtSignal(str)  # Emits filepath when file is selected
+    file_selected = pyqtSignal(str)  # Emits a validated filepath when file is selected
+    file_error = pyqtSignal(str)
     
     def __init__(self):
         super().__init__("G-code File")
@@ -60,7 +61,7 @@ class FileImportWidget(QGroupBox):
         """Handle drag enter event."""
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
-            if len(urls) == 1 and urls[0].toLocalFile().endswith('.gcode'):
+            if len(urls) == 1 and Path(urls[0].toLocalFile()).suffix.lower() == ".gcode":
                 event.acceptProposedAction()
                 self.drop_area.setStyleSheet("""
                     QLabel {
@@ -89,9 +90,9 @@ class FileImportWidget(QGroupBox):
     def dropEvent(self, event: QDropEvent):
         """Handle drop event."""
         urls = event.mimeData().urls()
-        if urls:
+        if len(urls) == 1:
             filepath = urls[0].toLocalFile()
-            if filepath.endswith('.gcode'):
+            if Path(filepath).suffix.lower() == ".gcode":
                 self._set_file(filepath)
                 event.acceptProposedAction()
         
@@ -110,9 +111,17 @@ class FileImportWidget(QGroupBox):
             self._set_file(filepath)
             
     def _set_file(self, filepath: str):
-        """Set the selected file and emit signal."""
-        self.current_file = filepath
-        filename = Path(filepath).name
+        """Validate and select a G-code file."""
+        from volcogui.backend.simulation_runner import validate_gcode_path
+
+        try:
+            path = validate_gcode_path(filepath)
+        except (OSError, ValueError) as exc:
+            self.file_error.emit(str(exc))
+            return
+
+        self.current_file = str(path)
+        filename = path.name
         self.file_label.setText(f"📄 {filename}")
         self.drop_area.setText(f"✓ {filename}")
         self.drop_area.setStyleSheet("""
@@ -126,4 +135,4 @@ class FileImportWidget(QGroupBox):
                 font-weight: bold;
             }
         """)
-        self.file_selected.emit(filepath)
+        self.file_selected.emit(str(path))

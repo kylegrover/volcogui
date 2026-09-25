@@ -218,10 +218,10 @@ class ViewerWidget(QWidget):
         )
         
     def load_stl(self, stl_path: str):
-        """Load and display an STL file."""
+        """Load and display an STL file, raising errors for the caller to report."""
         if not PYVISTA_AVAILABLE:
-            return
-            
+            raise RuntimeError("PyVista is not available; cannot display the simulation output.")
+
         try:
             # Clear previous mesh
             self.plotter.clear()
@@ -231,6 +231,8 @@ class ViewerWidget(QWidget):
             
             # Load mesh
             mesh = pv.read(stl_path)
+            if mesh.n_points == 0 or mesh.n_cells == 0:
+                raise ValueError("The STL contains no mesh geometry.")
             self.current_mesh = mesh
             
             # Compute normals for better lighting
@@ -280,9 +282,14 @@ class ViewerWidget(QWidget):
             # Add axes
             self.plotter.show_axes()
             
-        except Exception as e:
-            print(f"Error loading STL: {e}")
-            self._show_placeholder()
+        except Exception as exc:
+            self.current_mesh = None
+            self.current_actor = None
+            try:
+                self._show_placeholder()
+            except Exception:
+                pass
+            raise RuntimeError(f"Could not display STL {stl_path}: {exc}") from exc
             
     def clear(self):
         """Clear the viewer."""

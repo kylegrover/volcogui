@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -19,6 +18,30 @@ from PyQt6.QtCore import QThread, pyqtSignal
 SIMULATION_NAME = "volcogui_simulation"
 MAX_DIAGNOSTIC_LINES = 100
 MAX_DIAGNOSTIC_LINE_LENGTH = 2000
+
+
+def validate_gcode_path(gcode_path: str | Path) -> Path:
+    """Return an accessible G-code file path or raise a useful validation error."""
+    candidate = Path(gcode_path).expanduser()
+    try:
+        path = candidate.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"G-code file does not exist: {candidate}") from exc
+    except (OSError, RuntimeError) as exc:
+        raise OSError(f"Cannot access G-code path {candidate}: {exc}") from exc
+
+    if not path.is_file():
+        raise ValueError(f"G-code path is not a file: {path}")
+    if path.suffix.lower() != ".gcode":
+        raise ValueError(f"Expected a .gcode file, got: {path.name}")
+
+    try:
+        with path.open("rb") as gcode_file:
+            gcode_file.read(1)
+    except OSError as exc:
+        raise OSError(f"Cannot read G-code file {path}: {exc}") from exc
+
+    return path
 
 
 def build_simulation_config(gcode_path: str, params: dict, run_dir: Path) -> dict:
@@ -55,7 +78,7 @@ def build_simulation_config(gcode_path: str, params: dict, run_dir: Path) -> dic
     }
 
     return {
-        "gcode_path": str(Path(gcode_path).resolve()),
+        "gcode_path": str(validate_gcode_path(gcode_path)),
         "printer_config": printer_config,
         "sim_config": simulation_config,
     }
@@ -114,10 +137,29 @@ class SimulationWorker(QThread):
             return Path(sys._MEIPASS)
         return Path(__file__).resolve().parents[2]
 
+    @property
+    def diagnostics_text(self) -> str:
+        """Return the bounded tail of the child process output."""
+        return "\n".join(self._recent_output)
+
     def _handle_output(self, line: str) -> None:
-        """Extract the progress messages Volco currently writes to its log."""
+        """Capture bounded output and translate Volco logs into UI progress."""
         import re
 
+        stage_match = re.fullmatch(r"VOLCOGUI_STAGE:(\w+)", line.strip())
+        if stage_match:
+            stage_messages = {
+                "simulation": "Parsing G-code and running simulation...",
+                "stl_export": "Generating STL mesh...",
+                "output_validation": "Validating STL output...",
+            }
+            stage_message = stage_messages.get(stage_match.group(1))
+            if stage_message:
+                self._recent_output.append(f"[{stage_message}]")
+                self.progress.emit(stage_message)
+            return
+
+        self._recent_output.append(line[:MAX_DIAGNOSTIC_LINE_LENGTH])
         filament_match = re.search(r"Number of printed filaments:\s*(\d+)", line)
         if filament_match:
             self._total_steps = int(filament_match.group(1))
@@ -188,9 +230,7 @@ class SimulationWorker(QThread):
 
             assert process.stdout is not None
             for output_line in process.stdout:
-                line = output_line.rstrip()
-                self._recent_output.append(line[:MAX_DIAGNOSTIC_LINE_LENGTH])
-                self._handle_output(line)
+                self._handle_output(output_line.rstrip())
 
             return_code = process.wait()
             if self._cancel_requested.is_set():
