@@ -87,6 +87,7 @@ See [LESSONS_LEARNED.md](LESSONS_LEARNED.md) for more solutions.
 - [LESSONS_LEARNED.md](LESSONS_LEARNED.md) - Integration notes and known issues
 - [DEVELOPMENT.md](DEVELOPMENT.md) - Architecture and extension guide
 - [BUILD.md](BUILD.md) - Release build instructions
+- [WORK_NOTES.md](WORK_NOTES.md) - Current cleanup scope, review findings, and verification checklist
 
 ## Tech Stack
 

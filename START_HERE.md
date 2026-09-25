@@ -91,7 +91,7 @@ VolcoGUI is a desktop application that:
 - 👁️ **Interactive 3D Viewer** with rotate, pan, zoom
 - 🎨 **Professional UI** built with PyQt6
 - 🖥️ **Cross-Platform** (Windows, macOS, Linux)
-- 🧪 **Test Mode** works without Volco installed
+- 📋 **Run Log** records bounded diagnostics from the bundled Volco engine
 
 ## 📦 What's Included
 
@@ -121,8 +121,8 @@ uv sync
 # Verify key packages
 uv pip list | grep -E "(PyQt6|pyvista)"
 
-# Check if Volco is available (optional for testing)
-uv pip show volco
+# Check the bundled Volco submodule
+git submodule status volco
 ```
 
 ## 🎮 Three Ways to Run
@@ -150,22 +150,19 @@ run.bat
 uv run python -m volcogui.main
 ```
 
-## 🧪 Testing Without Volco
+## 🧪 Testing With Bundled Volco
 
-The app includes **test mode** - works without Volco installed!
+The app requires the `volco/` submodule. There is no silent test-cube fallback.
 
-1. Launch app (any method above)
-2. Import: `examples/test_cube.gcode`
-3. Click: "Run Simulation"
-4. Result: Test cube appears in 3D viewer
-
-This lets you test the interface before integrating Volco.
+1. Initialize it with `git submodule update --init`
+2. Launch the app and import `examples/test_cube.gcode`
+3. Click "Run Simulation" and check the output and Run Log
 
 ## 📋 Requirements
 
 - **Python:** 3.9+ (managed by uv)
 - **uv:** Package manager ([install guide](https://github.com/astral-sh/uv))
-- **Volco:** Optional for testing, required for real simulations
+- **Volco:** Bundled git submodule required for simulations
 
 ## 🎯 Typical Workflow
 
@@ -186,10 +183,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 ### "Volco not found"
-**Not an error!** App runs in test mode. To install Volco:
-```bash
-uv pip install -e /path/to/volco
-```
+**Fix:** Initialize the bundled engine with `git submodule update --init`. The app reports an error rather than displaying a fake result.
 
 ### "PyVista not available"
 **Fix:** Reinstall dependencies
@@ -222,7 +216,7 @@ The app currently exposes 3 key Volco parameters:
 
 ## 🎉 Ready to Go!
 
-Your VolcoGUI is **100% complete and ready to use**.
+VolcoGUI is usable, with lifecycle and packaging checks still tracked in [WORK_NOTES.md](WORK_NOTES.md).
 
 **First time setup (3 commands):**
 ```bash
